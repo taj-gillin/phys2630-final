@@ -1,0 +1,54 @@
+data:
+  track: track_1          # track_1 or track_2
+  exp: exp_1              # exp_1 ... exp_9
+  fovs: [0, 1]            # subset of FOVs for quick run
+  max_traj_per_fov: null  # limit trajectories (null = all)
+
+preprocess:
+  grid_size: 50
+  time_bins: 20
+  smoothing_sigma: 1.5
+  domain_margin: 0.1
+  sample_data_points: 5000
+  sample_collocation: 2000
+
+model:
+  hidden_layers: 6
+  hidden_dim: 64
+  activation: tanh
+  fourier_features: null
+  alpha_init: 0.9
+  D0_init: 1.0
+
+training:
+  phases:
+    - name: warmup
+      epochs: 2000
+      lr: 1.0e-3
+      lambda_data: 1.0
+      lambda_phys: 0.0
+    - name: physics
+      epochs: 8000
+      lr: 1.0e-3
+      lambda_data: 1.0
+      lambda_phys: 0.1
+    - name: finetune
+      epochs: 4000
+      lr: 5.0e-4
+      lambda_data: 1.0
+      lambda_phys: 0.2
+  lambda_ic: 10.0
+  bc_type: dirichlet_zero
+  batch_data: 256
+  batch_phys: 2048
+  grad_clip: 1.0
+  precision: float32
+
+eval:
+  compare_msd: true
+
+logging:
+  output_dir: outputs/exp_single_alpha
+  log_every: 200
+  eval_every: 1000
+
