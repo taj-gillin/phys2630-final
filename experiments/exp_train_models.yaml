@@ -1,0 +1,43 @@
+# Training configuration for generalized models (LSTM, CNN, PINN)
+# Run with: sbatch slurm/train_models.slurm
+
+data:
+  n_train: 50000      # Number of training trajectories
+  n_val: 5000         # Number of validation trajectories
+  trajectory_length: 200
+  alpha_range: [0.1, 2.0]   # Full range of anomalous exponents
+  D0_range: [0.1, 10.0]     # Range of diffusion coefficients
+  seed: 42
+
+training:
+  epochs: 50
+  batch_size: 128
+  lr: 0.001
+  weight_decay: 0.0001
+  num_workers: 4
+
+models:
+  lstm:
+    enabled: true
+    hidden_dim: 64
+    num_layers: 2
+    dropout: 0.1
+    bidirectional: true
+  
+  cnn:
+    enabled: true
+    base_channels: 32
+    num_blocks: 4
+    use_multiscale: true
+    dropout: 0.1
+  
+  pinn:
+    enabled: true
+    hidden_dim: 64
+    cnn_channels: 32
+    dropout: 0.1
+    lambda_physics: 0.1
+
+output:
+  dir: outputs/trained_models
+

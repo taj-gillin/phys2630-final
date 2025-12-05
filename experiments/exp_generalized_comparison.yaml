@@ -1,0 +1,22 @@
+# Comparison experiment for generalized models
+# Run with: sbatch slurm/run_generalized_comparison.slurm
+
+data:
+  source: huggingface
+  repo_id: taj-gillin/andi-trajectory
+  alphas: [0.3, 0.5, 0.7, 0.9, 1.0]
+  lengths: [200]
+  max_trajectories: 500
+
+models:
+  checkpoint_dir: outputs/trained_models
+  lstm:
+    enabled: true
+  cnn:
+    enabled: true
+  pinn:
+    enabled: true
+
+output:
+  dir: outputs/generalized_comparison
+

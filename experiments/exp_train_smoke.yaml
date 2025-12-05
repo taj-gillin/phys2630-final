@@ -1,0 +1,43 @@
+# Smoke test configuration for training (quick validation)
+# Run with: sbatch slurm/train_models.slurm --config experiments/exp_train_smoke.yaml
+
+data:
+  n_train: 1000       # Small dataset for testing
+  n_val: 200
+  trajectory_length: 200
+  alpha_range: [0.1, 2.0]
+  D0_range: [0.1, 10.0]
+  seed: 42
+
+training:
+  epochs: 5
+  batch_size: 64
+  lr: 0.001
+  weight_decay: 0.0001
+  num_workers: 2
+
+models:
+  lstm:
+    enabled: true
+    hidden_dim: 32
+    num_layers: 2
+    dropout: 0.1
+    bidirectional: true
+  
+  cnn:
+    enabled: true
+    base_channels: 16
+    num_blocks: 3
+    use_multiscale: true
+    dropout: 0.1
+  
+  pinn:
+    enabled: true
+    hidden_dim: 32
+    cnn_channels: 16
+    dropout: 0.1
+    lambda_physics: 0.1
+
+output:
+  dir: outputs/train_smoke
+
