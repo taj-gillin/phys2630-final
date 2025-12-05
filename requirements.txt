@@ -8,4 +8,6 @@ pyyaml>=6.0
 tqdm>=4.65.0
 scikit-learn>=1.2.0
 andi-datasets>=2.0.0
+datasets>=2.14.0
+huggingface_hub>=0.17.0
 

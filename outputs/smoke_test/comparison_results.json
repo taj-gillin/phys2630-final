@@ -1,0 +1,489 @@
+{
+  "summaries": {
+    "MSD Fitting": {
+      "method_name": "MSD Fitting",
+      "n_trajectories": 15,
+      "mean_alpha_error": 0.09993448995511199,
+      "std_alpha_error": 0.06993678642739103,
+      "mean_relative_error": 0.15110223452269475,
+      "std_relative_error": 0.1156039296482047,
+      "median_alpha_error": 0.09701155553554197
+    },
+    "MSD PINN": {
+      "method_name": "MSD PINN",
+      "n_trajectories": 15,
+      "mean_alpha_error": 0.42294776638348897,
+      "std_alpha_error": 0.19879591154402365,
+      "mean_relative_error": 0.5444118448666163,
+      "std_relative_error": 0.11810262382194142,
+      "median_alpha_error": 0.3941241323947906
+    },
+    "Displacement PINN": {
+      "method_name": "Displacement PINN",
+      "n_trajectories": 15,
+      "mean_alpha_error": 0.19136284987131755,
+      "std_alpha_error": 0.12906504704295232,
+      "mean_relative_error": 0.24577777499244327,
+      "std_relative_error": 0.11079508985437593,
+      "median_alpha_error": 0.132973313331604
+    }
+  },
+  "results": {
+    "MSD Fitting": [
+      {
+        "trajectory_id": 0,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.5481188709460273,
+        "alpha_error": 0.04811887094602729,
+        "alpha_relative_error": 0.09623774189205458,
+        "D0_true": 1.0,
+        "D0_pred": 0.05082759186022213,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 1,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.35311696384899527,
+        "alpha_error": 0.14688303615100473,
+        "alpha_relative_error": 0.29376607230200946,
+        "D0_true": 1.0,
+        "D0_pred": 0.0416102101259342,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 2,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.4810942601815697,
+        "alpha_error": 0.0189057398184303,
+        "alpha_relative_error": 0.0378114796368606,
+        "D0_true": 1.0,
+        "D0_pred": 0.03901785457018819,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 3,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.5669108117047515,
+        "alpha_error": 0.06691081170475155,
+        "alpha_relative_error": 0.1338216234095031,
+        "D0_true": 1.0,
+        "D0_pred": 0.05233183444668373,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 4,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.6732244932333058,
+        "alpha_error": 0.1732244932333058,
+        "alpha_relative_error": 0.3464489864666116,
+        "D0_true": 1.0,
+        "D0_pred": 0.044397403368044895,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 5,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.5874697331210755,
+        "alpha_error": 0.11253026687892442,
+        "alpha_relative_error": 0.16075752411274918,
+        "D0_true": 1.0,
+        "D0_pred": 0.018521486740494766,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 6,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.536014556523576,
+        "alpha_error": 0.16398544347642396,
+        "alpha_relative_error": 0.23426491925203424,
+        "D0_true": 1.0,
+        "D0_pred": 0.022760861172925282,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 7,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.8003744719576076,
+        "alpha_error": 0.10037447195760762,
+        "alpha_relative_error": 0.14339210279658232,
+        "D0_true": 1.0,
+        "D0_pred": 0.018242211290055897,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 8,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.6355668421390737,
+        "alpha_error": 0.0644331578609263,
+        "alpha_relative_error": 0.09204736837275185,
+        "D0_true": 1.0,
+        "D0_pred": 0.022150545364573455,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 9,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.990114165366634,
+        "alpha_error": 0.29011416536663404,
+        "alpha_relative_error": 0.41444880766662007,
+        "D0_true": 1.0,
+        "D0_pred": 0.01596902080829378,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 10,
+        "alpha_true": 1.0,
+        "alpha_pred": 1.105746536017693,
+        "alpha_error": 0.10574653601769302,
+        "alpha_relative_error": 0.10574653601769302,
+        "D0_true": 1.0,
+        "D0_pred": 0.004531838480824731,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 11,
+        "alpha_true": 1.0,
+        "alpha_pred": 1.097011555535542,
+        "alpha_error": 0.09701155553554197,
+        "alpha_relative_error": 0.09701155553554197,
+        "D0_true": 1.0,
+        "D0_pred": 0.0037869637619097583,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 12,
+        "alpha_true": 1.0,
+        "alpha_pred": 0.9909268677189234,
+        "alpha_error": 0.009073132281076646,
+        "alpha_relative_error": 0.009073132281076646,
+        "D0_true": 1.0,
+        "D0_pred": 0.005272172625484603,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 13,
+        "alpha_true": 1.0,
+        "alpha_pred": 0.9311960122926627,
+        "alpha_error": 0.06880398770733731,
+        "alpha_relative_error": 0.06880398770733731,
+        "D0_true": 1.0,
+        "D0_pred": 0.0045034673547292535,
+        "method_name": "MSD Fitting"
+      },
+      {
+        "trajectory_id": 14,
+        "alpha_true": 1.0,
+        "alpha_pred": 0.967098319609005,
+        "alpha_error": 0.03290168039099495,
+        "alpha_relative_error": 0.03290168039099495,
+        "D0_true": 1.0,
+        "D0_pred": 0.0048631060226823975,
+        "method_name": "MSD Fitting"
+      }
+    ],
+    "MSD PINN": [
+      {
+        "trajectory_id": 0,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.3035770356655121,
+        "alpha_error": 0.19642296433448792,
+        "alpha_relative_error": 0.39284592866897583,
+        "D0_true": 1.0,
+        "D0_pred": 0.35412923931558143,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 1,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.30196166038513184,
+        "alpha_error": 0.19803833961486816,
+        "alpha_relative_error": 0.39607667922973633,
+        "D0_true": 1.0,
+        "D0_pred": 0.3585837574726832,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 2,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.3030549883842468,
+        "alpha_error": 0.19694501161575317,
+        "alpha_relative_error": 0.39389002323150635,
+        "D0_true": 1.0,
+        "D0_pred": 0.3551283846530417,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 3,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.3044007122516632,
+        "alpha_error": 0.1955992877483368,
+        "alpha_relative_error": 0.3911985754966736,
+        "D0_true": 1.0,
+        "D0_pred": 0.35157701455834944,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 4,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.3058370351791382,
+        "alpha_error": 0.19416296482086182,
+        "alpha_relative_error": 0.38832592964172363,
+        "D0_true": 1.0,
+        "D0_pred": 0.3492272978342772,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 5,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.304042249917984,
+        "alpha_error": 0.39595775008201595,
+        "alpha_relative_error": 0.5656539286885942,
+        "D0_true": 1.0,
+        "D0_pred": 0.35304410175167517,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 6,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.30418261885643005,
+        "alpha_error": 0.3958173811435699,
+        "alpha_relative_error": 0.5654534016336713,
+        "D0_true": 1.0,
+        "D0_pred": 0.35170886237014043,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 7,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.3090561330318451,
+        "alpha_error": 0.39094386696815486,
+        "alpha_relative_error": 0.5584912385259355,
+        "D0_true": 1.0,
+        "D0_pred": 0.3448002535975723,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 8,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.30587586760520935,
+        "alpha_error": 0.3941241323947906,
+        "alpha_relative_error": 0.5630344748497009,
+        "D0_true": 1.0,
+        "D0_pred": 0.3482184846864823,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 9,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.3149937093257904,
+        "alpha_error": 0.38500629067420955,
+        "alpha_relative_error": 0.5500089866774422,
+        "D0_true": 1.0,
+        "D0_pred": 0.3413162380610193,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 10,
+        "alpha_true": 1.0,
+        "alpha_pred": 0.3200340270996094,
+        "alpha_error": 0.6799659729003906,
+        "alpha_relative_error": 0.6799659729003906,
+        "D0_true": 1.0,
+        "D0_pred": 0.3409847704587287,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 11,
+        "alpha_true": 1.0,
+        "alpha_pred": 0.3215086758136749,
+        "alpha_error": 0.6784913241863251,
+        "alpha_relative_error": 0.6784913241863251,
+        "D0_true": 1.0,
+        "D0_pred": 0.3397981616676633,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 12,
+        "alpha_true": 1.0,
+        "alpha_pred": 0.31983301043510437,
+        "alpha_error": 0.6801669895648956,
+        "alpha_relative_error": 0.6801669895648956,
+        "D0_true": 1.0,
+        "D0_pred": 0.33773093792106273,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 13,
+        "alpha_true": 1.0,
+        "alpha_pred": 0.31469646096229553,
+        "alpha_error": 0.6853035390377045,
+        "alpha_relative_error": 0.6853035390377045,
+        "D0_true": 1.0,
+        "D0_pred": 0.3402682659286708,
+        "method_name": "MSD PINN"
+      },
+      {
+        "trajectory_id": 14,
+        "alpha_true": 1.0,
+        "alpha_pred": 0.32272931933403015,
+        "alpha_error": 0.6772706806659698,
+        "alpha_relative_error": 0.6772706806659698,
+        "D0_true": 1.0,
+        "D0_pred": 0.3357908794247426,
+        "method_name": "MSD PINN"
+      }
+    ],
+    "Displacement PINN": [
+      {
+        "trajectory_id": 0,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.6351513862609863,
+        "alpha_error": 0.13515138626098633,
+        "alpha_relative_error": 0.27030277252197266,
+        "D0_true": 1.0,
+        "D0_pred": 0.32468675222062104,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 1,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.6358627676963806,
+        "alpha_error": 0.13586276769638062,
+        "alpha_relative_error": 0.27172553539276123,
+        "D0_true": 1.0,
+        "D0_pred": 0.16100180570948572,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 2,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.6307417154312134,
+        "alpha_error": 0.13074171543121338,
+        "alpha_relative_error": 0.26148343086242676,
+        "D0_true": 1.0,
+        "D0_pred": 0.20911018952476118,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 3,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.632973313331604,
+        "alpha_error": 0.132973313331604,
+        "alpha_relative_error": 0.265946626663208,
+        "D0_true": 1.0,
+        "D0_pred": 0.3498003213785302,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 4,
+        "alpha_true": 0.5,
+        "alpha_pred": 0.6294811367988586,
+        "alpha_error": 0.12948113679885864,
+        "alpha_relative_error": 0.2589622735977173,
+        "D0_true": 1.0,
+        "D0_pred": 0.3776328882949914,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 5,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.6305422782897949,
+        "alpha_error": 0.06945772171020503,
+        "alpha_relative_error": 0.09922531672886434,
+        "D0_true": 1.0,
+        "D0_pred": 0.12540170165812262,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 6,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.6226669549942017,
+        "alpha_error": 0.0773330450057983,
+        "alpha_relative_error": 0.11047577857971186,
+        "D0_true": 1.0,
+        "D0_pred": 0.13728291307205165,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 7,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.6302916407585144,
+        "alpha_error": 0.06970835924148555,
+        "alpha_relative_error": 0.09958337034497937,
+        "D0_true": 1.0,
+        "D0_pred": 0.1984835450189063,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 8,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.6348628401756287,
+        "alpha_error": 0.0651371598243713,
+        "alpha_relative_error": 0.09305308546338757,
+        "D0_true": 1.0,
+        "D0_pred": 0.17694001192563913,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 9,
+        "alpha_true": 0.7,
+        "alpha_pred": 0.626937985420227,
+        "alpha_error": 0.0730620145797729,
+        "alpha_relative_error": 0.10437430654253273,
+        "D0_true": 1.0,
+        "D0_pred": 0.28083196059834603,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 10,
+        "alpha_true": 1.0,
+        "alpha_pred": 0.6326097846031189,
+        "alpha_error": 0.3673902153968811,
+        "alpha_relative_error": 0.3673902153968811,
+        "D0_true": 1.0,
+        "D0_pred": 0.12418779337151087,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 11,
+        "alpha_true": 1.0,
+        "alpha_pred": 0.627947986125946,
+        "alpha_error": 0.37205201387405396,
+        "alpha_relative_error": 0.37205201387405396,
+        "D0_true": 1.0,
+        "D0_pred": 0.103354507105599,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 12,
+        "alpha_true": 1.0,
+        "alpha_pred": 0.6281384825706482,
+        "alpha_error": 0.3718615174293518,
+        "alpha_relative_error": 0.3718615174293518,
+        "D0_true": 1.0,
+        "D0_pred": 0.10620632237986488,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 13,
+        "alpha_true": 1.0,
+        "alpha_pred": 0.6286719441413879,
+        "alpha_error": 0.37132805585861206,
+        "alpha_relative_error": 0.37132805585861206,
+        "D0_true": 1.0,
+        "D0_pred": 0.07841838883982306,
+        "method_name": "Displacement PINN"
+      },
+      {
+        "trajectory_id": 14,
+        "alpha_true": 1.0,
+        "alpha_pred": 0.631097674369812,
+        "alpha_error": 0.368902325630188,
+        "alpha_relative_error": 0.368902325630188,
+        "D0_true": 1.0,
+        "D0_pred": 0.09160996888496828,
+        "method_name": "Displacement PINN"
+      }
+    ]
+  }
+}
