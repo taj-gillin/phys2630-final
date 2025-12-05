@@ -1,4 +1,4 @@
-# Comparison experiment for generalized models
+# Compare all trained models against baselines
 # Run with: sbatch slurm/run_generalized_comparison.slurm
 
 data:
@@ -10,13 +10,20 @@ data:
 
 models:
   checkpoint_dir: outputs/trained_models
+  
+  # Enable/disable individual models for comparison
+  linear:
+    enabled: true
+  mlp:
+    enabled: true
   lstm:
     enabled: true
   cnn:
     enabled: true
-  pinn:
+  hybrid:
+    enabled: true
+  hybrid_pinn:
     enabled: true
 
 output:
   dir: outputs/generalized_comparison
-

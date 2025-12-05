@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-Train generalized models (LSTM, CNN, PINN) on a large synthetic dataset.
+Train generalized models on a large synthetic dataset.
+
+Uses the modular architecture:
+- Encoders: linear, mlp, lstm, cnn, hybrid
+- Losses: supervised, physics, combined (PINN)
 
 Usage:
     python scripts/train_models.py --config experiments/exp_train_models.yaml
@@ -16,7 +20,6 @@ from typing import Optional
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
@@ -24,9 +27,8 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from data.synthetic import generate_fbm_trajectory
-from methods.lstm_predictor import LSTMPredictor, create_lstm_model
-from methods.cnn_predictor import CNNPredictor, create_cnn_model
-from methods.trajectory_pinn import TrajectoryPINN, create_pinn_model
+from methods.predictor import DiffusionPredictor
+from methods.losses import create_loss
 from utils.config import load_config, ensure_dir
 
 
@@ -49,18 +51,15 @@ class TrajectoryDataset(Dataset):
         if seed is not None:
             np.random.seed(seed)
         
-        # Pre-generate all trajectories
         print(f"Generating {n_trajectories} synthetic trajectories...")
         self.trajectories = []
         self.alphas = []
         self.D0s = []
         
         for i in tqdm(range(n_trajectories), desc="Generating"):
-            # Sample random alpha and D0
             alpha = np.random.uniform(*alpha_range)
             D0 = np.random.uniform(*D0_range)
             
-            # Generate trajectory
             traj = generate_fbm_trajectory(
                 alpha=alpha,
                 length=trajectory_length,
@@ -86,25 +85,24 @@ class TrajectoryDataset(Dataset):
         D0 = torch.tensor(self.D0s[idx], dtype=torch.float32)
         
         # Normalize trajectory
-        traj = traj - traj[0:1, :]  # Center at origin
+        traj = traj - traj[0:1, :]
         std = traj.std() + 1e-8
         traj = traj / std
         
-        # Store normalization scale for D0 correction
         return traj, alpha, D0, std
 
 
 def train_model(
     model: nn.Module,
+    loss_fn: nn.Module,
     train_loader: DataLoader,
     val_loader: DataLoader,
     config: dict,
     model_name: str,
     output_dir: Path,
     device: str = "cuda",
-    use_physics_loss: bool = False,
 ):
-    """Train a single model."""
+    """Train a single model with the given loss function."""
     model = model.to(device)
     
     optimizer = torch.optim.AdamW(
@@ -122,10 +120,13 @@ def train_model(
     best_val_loss = float("inf")
     history = {"train_loss": [], "val_loss": [], "val_alpha_mae": []}
     
+    use_physics = hasattr(loss_fn, 'physics') or loss_fn.__class__.__name__ == 'PhysicsLoss'
+    
     print(f"\nTraining {model_name}...")
+    print(f"  Encoder: {model.encoder_name}")
+    print(f"  Loss: {loss_fn.__class__.__name__}")
     print(f"  Epochs: {config['epochs']}")
     print(f"  Learning rate: {config['lr']}")
-    print(f"  Physics loss: {use_physics_loss}")
     
     for epoch in range(config["epochs"]):
         # Training
@@ -140,19 +141,11 @@ def train_model(
             
             alpha_pred, D0_pred = model(traj)
             
-            # Supervised loss on alpha
-            loss_alpha = F.mse_loss(alpha_pred, alpha_true)
-            
-            # Supervised loss on log(D0) for scale invariance
-            # Note: D0_pred is in normalized space, need to account for scaling
-            loss_D0 = F.mse_loss(torch.log(D0_pred + 1e-8), torch.log(D0_true / (scale ** 2) + 1e-8))
-            
-            loss = loss_alpha + 0.1 * loss_D0
-            
-            # Add physics loss for PINN
-            if use_physics_loss and hasattr(model, "compute_physics_loss"):
-                physics_loss = model.compute_physics_loss(traj, alpha_pred, D0_pred)
-                loss = loss + config.get("lambda_physics", 0.1) * physics_loss
+            # Compute loss (handles both simple and combined losses)
+            if hasattr(loss_fn, 'physics'):  # CombinedLoss
+                loss, _ = loss_fn(alpha_pred, D0_pred, alpha_true, D0_true, traj, scale)
+            else:
+                loss = loss_fn(alpha_pred, D0_pred, alpha_true, D0_true, traj, scale)
             
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -174,7 +167,8 @@ def train_model(
                 
                 alpha_pred, D0_pred = model(traj)
                 
-                loss_alpha = F.mse_loss(alpha_pred, alpha_true)
+                # Just use alpha MSE for validation metric
+                loss_alpha = torch.nn.functional.mse_loss(alpha_pred, alpha_true)
                 val_losses.append(loss_alpha.item())
                 
                 alpha_mae = torch.abs(alpha_pred - alpha_true).mean()
@@ -188,7 +182,7 @@ def train_model(
         history["val_loss"].append(val_loss)
         history["val_alpha_mae"].append(val_alpha_mae)
         
-        print(f"  Epoch {epoch+1}: train_loss={train_loss:.4f}, val_loss={val_loss:.4f}, val_α_MAE={val_alpha_mae:.4f}")
+        print(f"  Epoch {epoch+1}: train={train_loss:.4f}, val={val_loss:.4f}, α_MAE={val_alpha_mae:.4f}")
         
         # Save best model
         if val_loss < best_val_loss:
@@ -199,7 +193,10 @@ def train_model(
                 "epoch": epoch,
                 "val_loss": val_loss,
                 "val_alpha_mae": val_alpha_mae,
-                "config": config,
+                "config": {
+                    "encoder_name": model.encoder_name,
+                    "encoder_kwargs": {},
+                },
             }
             torch.save(checkpoint, output_dir / f"{model_name}_best.pt")
             print(f"    ✓ Saved best model (val_loss={val_loss:.4f})")
@@ -209,7 +206,10 @@ def train_model(
         "model_state_dict": model.state_dict(),
         "epoch": config["epochs"],
         "history": history,
-        "config": config,
+        "config": {
+            "encoder_name": model.encoder_name,
+            "encoder_kwargs": {},
+        },
     }
     torch.save(checkpoint, output_dir / f"{model_name}_final.pt")
     
@@ -223,7 +223,6 @@ def main():
     
     cfg = load_config(args.config)
     
-    # Setup
     device = "cuda" if torch.cuda.is_available() else "cpu"
     output_dir = Path(cfg["output"]["dir"])
     ensure_dir(output_dir)
@@ -235,7 +234,7 @@ def main():
     print(f"Output: {output_dir}")
     print(f"Start time: {datetime.now()}")
     
-    # Create dataset
+    # Create datasets
     data_cfg = cfg["data"]
     train_dataset = TrajectoryDataset(
         n_trajectories=data_cfg["n_train"],
@@ -250,7 +249,7 @@ def main():
         trajectory_length=data_cfg["trajectory_length"],
         alpha_range=tuple(data_cfg["alpha_range"]),
         D0_range=tuple(data_cfg.get("D0_range", [0.1, 10.0])),
-        seed=data_cfg.get("seed", 0) + 999999,  # Different seed for val
+        seed=data_cfg.get("seed", 0) + 999999,
     )
     
     train_loader = DataLoader(
@@ -271,70 +270,43 @@ def main():
     
     all_history = {}
     
-    # Train LSTM model
-    if cfg["models"].get("lstm", {}).get("enabled", True):
-        lstm_cfg = cfg["models"]["lstm"]
-        lstm_model = create_lstm_model(
-            hidden_dim=lstm_cfg.get("hidden_dim", 64),
-            num_layers=lstm_cfg.get("num_layers", 2),
-            dropout=lstm_cfg.get("dropout", 0.1),
-            bidirectional=lstm_cfg.get("bidirectional", True),
+    # Train each model configuration
+    for model_name, model_cfg in cfg["models"].items():
+        if not model_cfg.get("enabled", True):
+            print(f"\nSkipping {model_name} (disabled)")
+            continue
+        
+        encoder_name = model_cfg.get("encoder", model_name)
+        loss_name = model_cfg.get("loss", "supervised")
+        
+        # Create model
+        encoder_kwargs = {k: v for k, v in model_cfg.items() 
+                        if k not in ["enabled", "encoder", "loss", "lambda_physics"]}
+        
+        model = DiffusionPredictor(
+            encoder_name=encoder_name,
+            encoder_kwargs=encoder_kwargs,
         )
         
-        history = train_model(
-            model=lstm_model,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            config={**cfg["training"], **lstm_cfg},
-            model_name="lstm",
-            output_dir=output_dir,
-            device=device,
-            use_physics_loss=False,
-        )
-        all_history["lstm"] = history
-    
-    # Train CNN model
-    if cfg["models"].get("cnn", {}).get("enabled", True):
-        cnn_cfg = cfg["models"]["cnn"]
-        cnn_model = create_cnn_model(
-            base_channels=cnn_cfg.get("base_channels", 32),
-            num_blocks=cnn_cfg.get("num_blocks", 4),
-            use_multiscale=cnn_cfg.get("use_multiscale", True),
-            dropout=cnn_cfg.get("dropout", 0.1),
-        )
+        # Create loss
+        loss_kwargs = {}
+        if loss_name == "combined":
+            loss_kwargs["lambda_physics"] = model_cfg.get("lambda_physics", 0.1)
         
-        history = train_model(
-            model=cnn_model,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            config={**cfg["training"], **cnn_cfg},
-            model_name="cnn",
-            output_dir=output_dir,
-            device=device,
-            use_physics_loss=False,
-        )
-        all_history["cnn"] = history
-    
-    # Train PINN model
-    if cfg["models"].get("pinn", {}).get("enabled", True):
-        pinn_cfg = cfg["models"]["pinn"]
-        pinn_model = create_pinn_model(
-            hidden_dim=pinn_cfg.get("hidden_dim", 64),
-            cnn_channels=pinn_cfg.get("cnn_channels", 32),
-            dropout=pinn_cfg.get("dropout", 0.1),
-        )
+        loss_fn = create_loss(loss_name, **loss_kwargs)
         
+        # Train
         history = train_model(
-            model=pinn_model,
+            model=model,
+            loss_fn=loss_fn,
             train_loader=train_loader,
             val_loader=val_loader,
-            config={**cfg["training"], **pinn_cfg},
-            model_name="pinn",
+            config={**cfg["training"], **model_cfg},
+            model_name=model_name,
             output_dir=output_dir,
             device=device,
-            use_physics_loss=True,  # This is the key difference!
         )
-        all_history["pinn"] = history
+        all_history[model_name] = history
     
     # Save training summary
     summary = {
@@ -356,4 +328,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
