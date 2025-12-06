@@ -47,11 +47,6 @@ class TrajectoryDataset(Dataset):
         D0 = torch.tensor(traj.D0_true, dtype=torch.float32)
         length = len(traj.positions)
         
-        # Normalize
-        positions = positions - positions[0:1, :]
-        std = positions.std() + 1e-8
-        positions = positions / std
-        
         # Pad/truncate
         if length < self.pad_to_length:
             padding = torch.zeros(self.pad_to_length - length, 2)
@@ -59,7 +54,7 @@ class TrajectoryDataset(Dataset):
         elif length > self.pad_to_length:
             positions = positions[:self.pad_to_length]
         
-        return positions, alpha, D0, std
+        return positions, alpha, D0, torch.tensor(length, dtype=torch.long)
 
 
 def get_device(config: dict) -> str:
@@ -129,24 +124,30 @@ def train(
         # Training
         model.train()
         train_losses = []
-        
+        train_loss_breakdowns = []
+
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{train_cfg['epochs']}")
         for batch_idx, batch in enumerate(pbar):
-            traj, alpha_true, D0_true, scale = [x.to(device) for x in batch]
-            
+            traj, alpha_true, D0_true, lengths = [x.to(device) for x in batch]
+
             optimizer.zero_grad()
             alpha_pred, D0_pred = model(traj)
-            
-            if hasattr(loss_fn, 'physics'):
-                loss, _ = loss_fn(alpha_pred, D0_pred, alpha_true, D0_true, traj, scale)
+
+            # Compute loss - some loss functions return breakdown dict
+            loss_output = loss_fn(alpha_pred, D0_pred, alpha_true, D0_true, traj, lengths)
+            if isinstance(loss_output, tuple):
+                loss, loss_breakdown = loss_output
             else:
-                loss = loss_fn(alpha_pred, D0_pred, alpha_true, D0_true, traj, scale)
-            
+                loss = loss_output
+                loss_breakdown = None
+
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            
+
             train_losses.append(loss.item())
+            if loss_breakdown:
+                train_loss_breakdowns.append(loss_breakdown)
             pbar.set_postfix({"loss": f"{loss.item():.4f}"})
             
             if batch_idx % log_interval == 0:
@@ -164,7 +165,7 @@ def train(
         
         with torch.no_grad():
             for batch in val_loader:
-                traj, alpha_true, D0_true, scale = [x.to(device) for x in batch]
+                traj, alpha_true, D0_true, lengths = [x.to(device) for x in batch]
                 alpha_pred, D0_pred = model(traj)
                 
                 val_loss = torch.nn.functional.mse_loss(alpha_pred, alpha_true)
@@ -177,11 +178,18 @@ def train(
         val_loss = np.mean(val_losses)
         val_alpha_mae = np.mean(val_alpha_errors)
         current_lr = scheduler.get_last_lr()[0]
-        
+
+        # Compute average loss breakdown if available
+        train_loss_breakdown_avg = None
+        if train_loss_breakdowns:
+            train_loss_breakdown_avg = {}
+            for key in train_loss_breakdowns[0].keys():
+                train_loss_breakdown_avg[key] = np.mean([bd[key] for bd in train_loss_breakdowns])
+
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)
         history["val_alpha_mae"].append(val_alpha_mae)
-        
+
         # Log to wandb
         logger.log_epoch(
             epoch=epoch + 1,
@@ -189,6 +197,7 @@ def train(
             val_loss=val_loss,
             val_alpha_mae=val_alpha_mae,
             learning_rate=current_lr,
+            train_loss_breakdown=train_loss_breakdown_avg,
         )
         
         print(f"Epoch {epoch+1}: train={train_loss:.4f}, val={val_loss:.4f}, α_MAE={val_alpha_mae:.4f}")

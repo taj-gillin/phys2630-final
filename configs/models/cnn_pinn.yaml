@@ -7,14 +7,14 @@
 # =============================================================================
 
 experiment:
-  name: cnn
+  name: cnn_pinn
   description: Multi-scale CNN for local trajectory patterns
 
 wandb:
   enabled: true
   project: anomalous-diffusion
   entity: taj_gillin-Brown University
-  tags: [cnn, convolutional, multi-scale]
+  tags: [cnn, pinn, multi-scale]
   notes: 1D CNN encoder - extracts multi-scale local features
 
 data:
@@ -29,12 +29,12 @@ data:
 
 model:
   encoder: cnn
-  loss: supervised
+  loss: combined
   params:
     channels: 32
     dropout: 0.1
   loss_params:
-    lambda_physics: 0.1
+    lambda_physics: 0.01
 
 training:
   epochs: 50

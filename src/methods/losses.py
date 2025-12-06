@@ -30,28 +30,21 @@ class SupervisedLoss(nn.Module):
         alpha_true: torch.Tensor,
         D0_true: torch.Tensor,
         trajectory: torch.Tensor = None,  # Not used, but kept for interface consistency
-        scale: torch.Tensor = None,
+        lengths: torch.Tensor = None,  # Not used
     ) -> torch.Tensor:
         """
         Args:
             alpha_pred: (batch,) predicted α
-            D0_pred: (batch,) predicted D₀ (in normalized space)
+            D0_pred: (batch,) predicted D₀
             alpha_true: (batch,) ground truth α
             D0_true: (batch,) ground truth D₀
             trajectory: (batch, T, 2) - not used
-            scale: (batch,) normalization scale applied to trajectory
         """
         loss_alpha = F.mse_loss(alpha_pred, alpha_true)
         
-        # D0 in log space, accounting for normalization
-        if scale is not None:
-            D0_true_normalized = D0_true / (scale ** 2)
-        else:
-            D0_true_normalized = D0_true
-        
         loss_D0 = F.mse_loss(
             torch.log(D0_pred + 1e-8),
-            torch.log(D0_true_normalized + 1e-8)
+            torch.log(D0_true + 1e-8)
         )
         
         return self.alpha_weight * loss_alpha + self.D0_weight * loss_D0
@@ -77,7 +70,7 @@ class PhysicsLoss(nn.Module):
         alpha_true: torch.Tensor = None,  # Not used
         D0_true: torch.Tensor = None,  # Not used
         trajectory: torch.Tensor = None,
-        scale: torch.Tensor = None,
+        lengths: torch.Tensor = None,
     ) -> torch.Tensor:
         """
         Compute physics loss by comparing predicted vs empirical MSD.
@@ -85,43 +78,65 @@ class PhysicsLoss(nn.Module):
         Args:
             alpha_pred: (batch,) predicted α
             D0_pred: (batch,) predicted D₀
-            trajectory: (batch, T, 2) normalized trajectory
-            scale: (batch,) normalization scale (not used here)
+            trajectory: (batch, T, 2) trajectory (padded)
+            lengths: (batch,) true lengths before padding
         """
         if trajectory is None:
             raise ValueError("PhysicsLoss requires trajectory input")
         
         batch_size, seq_len, _ = trajectory.shape
-        max_lag = max(1, int(seq_len * self.max_lag_fraction))
         device = trajectory.device
+
+        if lengths is None:
+            lengths = torch.full((batch_size,), seq_len, device=device, dtype=torch.long)
+        else:
+            lengths = lengths.to(device)
+
+        # Global max lag based on the longest sequence in the batch
+        max_len = lengths.max().item()
+        max_lag_global = max(1, int(max_len * self.max_lag_fraction))
+
+        # Pre-compute theoretical lags tensor once
+        lags = torch.arange(1, max_lag_global + 1, device=device, dtype=torch.float32)  # (max_lag_global,)
+
+        # Collect empirical MSDs and valid masks per lag
+        msd_empirical_list = []
+        lag_mask_list = []
+
+        for lag in range(1, max_lag_global + 1):
+            # Displacements for this lag across the whole batch (padded trajectories)
+            disp = trajectory[:, lag:, :] - trajectory[:, :-lag, :]  # (batch, seq_len - lag, 2)
+
+            # Valid mask: positions before padding for each sample
+            valid = (torch.arange(seq_len - lag, device=device)
+                     < (lengths - lag).unsqueeze(1))  # (batch, seq_len - lag)
+
+            # Avoid division by zero
+            valid_counts = valid.sum(dim=1).clamp_min(1)  # (batch,)
+
+            # Empirical MSD for this lag, per sample
+            msd = ( (disp ** 2).sum(dim=-1) * valid ).sum(dim=1) / valid_counts  # (batch,)
+            msd_empirical_list.append(msd)
+
+            # Mask indicating which samples have any valid entries for this lag
+            lag_mask_list.append((lengths > lag).float())
+
+        msd_empirical = torch.stack(msd_empirical_list, dim=1)  # (batch, max_lag_global)
+        lag_mask = torch.stack(lag_mask_list, dim=1)            # (batch, max_lag_global)
+
+        # Theoretical MSD for all lags, per sample
+        msd_theoretical = 4.0 * D0_pred.unsqueeze(-1) * torch.pow(lags.unsqueeze(0), alpha_pred.unsqueeze(-1))
+
+        # Log-scale MSE with masking; normalize per sample by its valid lags
+        log_msd_emp = torch.log(msd_empirical + 1e-8)
+        log_msd_theo = torch.log(msd_theoretical + 1e-8)
+
+        sq_err = (log_msd_theo - log_msd_emp) ** 2  # (batch, max_lag_global)
+        per_traj_loss = (sq_err * lag_mask).sum(dim=1) / lag_mask.sum(dim=1).clamp_min(1.0)
+
+        physics_loss = per_traj_loss.mean()
         
-        physics_losses = []
-        
-        for i in range(batch_size):
-            traj = trajectory[i]  # (seq_len, 2)
-            
-            # Compute empirical MSD for multiple lags
-            lags = torch.arange(1, max_lag + 1, device=device, dtype=torch.float32)
-            msd_empirical = []
-            
-            for lag in range(1, max_lag + 1):
-                displacements = traj[lag:] - traj[:-lag]
-                msd = (displacements ** 2).sum(dim=-1).mean()
-                msd_empirical.append(msd)
-            
-            msd_empirical = torch.stack(msd_empirical)
-            
-            # Theoretical MSD from predicted parameters
-            msd_theoretical = 4.0 * D0_pred[i] * torch.pow(lags, alpha_pred[i])
-            
-            # Log-scale MSE for better gradient behavior
-            log_msd_emp = torch.log(msd_empirical + 1e-8)
-            log_msd_theo = torch.log(msd_theoretical + 1e-8)
-            
-            physics_loss = F.mse_loss(log_msd_theo, log_msd_emp)
-            physics_losses.append(physics_loss)
-        
-        return torch.stack(physics_losses).mean()
+        return physics_loss
 
 
 class CombinedLoss(nn.Module):
@@ -152,7 +167,7 @@ class CombinedLoss(nn.Module):
         alpha_true: torch.Tensor,
         D0_true: torch.Tensor,
         trajectory: torch.Tensor,
-        scale: torch.Tensor = None,
+        lengths: torch.Tensor = None,
     ) -> tuple[torch.Tensor, dict]:
         """
         Returns:
@@ -160,10 +175,10 @@ class CombinedLoss(nn.Module):
             breakdown: dict with individual loss components
         """
         loss_sup = self.supervised(
-            alpha_pred, D0_pred, alpha_true, D0_true, trajectory, scale
+            alpha_pred, D0_pred, alpha_true, D0_true, trajectory, lengths
         )
         loss_phys = self.physics(
-            alpha_pred, D0_pred, alpha_true, D0_true, trajectory, scale
+            alpha_pred, D0_pred, alpha_true, D0_true, trajectory, lengths
         )
         
         total = loss_sup + self.lambda_physics * loss_phys

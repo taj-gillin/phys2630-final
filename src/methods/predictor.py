@@ -168,9 +168,6 @@ class DiffusionPredictorInference(InferenceMethod):
             trajectory, dtype=torch.float32
         ).unsqueeze(0).to(self.device)
         
-        # Normalize
-        traj_tensor = self._normalize_trajectory(traj_tensor)
-        
         # Forward pass
         with torch.no_grad():
             alpha, D0 = self.model(traj_tensor)
@@ -178,14 +175,6 @@ class DiffusionPredictorInference(InferenceMethod):
         self._alpha = alpha.item()
         self._D0 = D0.item()
         self._is_fitted = True
-    
-    def _normalize_trajectory(self, traj: torch.Tensor) -> torch.Tensor:
-        """Normalize trajectory for consistent input scale."""
-        traj = traj - traj[:, 0:1, :]
-        std = traj.std() + 1e-8
-        traj = traj / std
-        return traj
-
 
 def create_predictor(
     encoder_name: str = "lstm",

@@ -109,6 +109,7 @@ class WandbLogger:
         val_loss: float,
         val_alpha_mae: float,
         learning_rate: Optional[float] = None,
+        train_loss_breakdown: Optional[dict] = None,
     ) -> None:
         """Log epoch-level training metrics."""
         metrics = {
@@ -119,6 +120,13 @@ class WandbLogger:
         }
         if learning_rate is not None:
             metrics["train/lr"] = learning_rate
+
+        # Log individual loss components if available
+        if train_loss_breakdown:
+            for loss_type, loss_value in train_loss_breakdown.items():
+                if loss_type != "total":  # Avoid duplicating total loss
+                    metrics[f"train/{loss_type}_loss"] = loss_value
+
         self.log(metrics)
     
     def log_model_summary(

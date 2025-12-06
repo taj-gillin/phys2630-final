@@ -29,7 +29,7 @@ data:
 
 model:
   encoder: cnn
-  loss: combined
+  loss: supervised
   params:
     channels: 32
     dropout: 0.1
