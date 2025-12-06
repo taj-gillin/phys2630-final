@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Train a single model on HuggingFace trajectory dataset.
+Train a model to predict α (anomalous diffusion exponent) on HuggingFace trajectory dataset.
+
+Following the AnDi Challenge (https://www.nature.com/articles/s41467-021-26320-w),
+we focus on Task 1: Inference of the anomalous diffusion exponent α.
 
 Usage:
     python scripts/train.py --config configs/models/lstm.yaml
@@ -44,7 +47,6 @@ class TrajectoryDataset(Dataset):
         traj = self.trajectories[idx]
         positions = torch.tensor(traj.positions, dtype=torch.float32)
         alpha = torch.tensor(traj.alpha_true, dtype=torch.float32)
-        D0 = torch.tensor(traj.D0_true, dtype=torch.float32)
         length = len(traj.positions)
         
         # Pad/truncate
@@ -54,7 +56,7 @@ class TrajectoryDataset(Dataset):
         elif length > self.pad_to_length:
             positions = positions[:self.pad_to_length]
         
-        return positions, alpha, D0, torch.tensor(length, dtype=torch.long)
+        return positions, alpha, torch.tensor(length, dtype=torch.long)
 
 
 def get_device(config: dict) -> str:
@@ -63,6 +65,36 @@ def get_device(config: dict) -> str:
     if device_cfg == "auto":
         return "cuda" if torch.cuda.is_available() else "cpu"
     return device_cfg
+
+
+def compute_regularization(
+    model: nn.Module, l1_coeff: float, l2_coeff: float
+) -> tuple[torch.Tensor | None, dict[str, float]]:
+    """Compute optional L1/L2 regularization loss for the model."""
+    if not (l1_coeff or l2_coeff):
+        return None, {}
+
+    params = [p for p in model.parameters() if p.requires_grad]
+    if not params:
+        return None, {}
+
+    device = params[0].device
+    reg_loss = torch.tensor(0.0, device=device)
+    breakdown: dict[str, float] = {}
+
+    if l1_coeff:
+        l1_norm = sum(p.abs().sum() for p in params)
+        l1_term = l1_coeff * l1_norm
+        reg_loss = reg_loss + l1_term
+        breakdown["l1"] = l1_term.item()
+
+    if l2_coeff:
+        l2_norm = sum(p.pow(2).sum() for p in params)
+        l2_term = l2_coeff * l2_norm
+        reg_loss = reg_loss + l2_term
+        breakdown["l2"] = l2_term.item()
+
+    return reg_loss, breakdown
 
 
 def train(
@@ -80,6 +112,10 @@ def train(
     
     train_cfg = config["training"]
     exp_name = config["experiment"]["name"]
+
+    regularization_cfg = train_cfg.get("regularization", {})
+    l1_coeff = float(regularization_cfg.get("l1", 0.0))
+    l2_coeff = float(regularization_cfg.get("l2", 0.0))
     
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -115,6 +151,13 @@ def train(
     print(f"Loss: {loss_fn.__class__.__name__}")
     print(f"Epochs: {train_cfg['epochs']}")
     print(f"Learning rate: {train_cfg['lr']}")
+    if l1_coeff or l2_coeff:
+        reg_parts = []
+        if l1_coeff:
+            reg_parts.append(f"L1={l1_coeff}")
+        if l2_coeff:
+            reg_parts.append(f"L2={l2_coeff}")
+        print(f"Regularization: {', '.join(reg_parts)}")
     print()
     
     log_interval = train_cfg.get("log_interval", 10)
@@ -128,18 +171,29 @@ def train(
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{train_cfg['epochs']}")
         for batch_idx, batch in enumerate(pbar):
-            traj, alpha_true, D0_true, lengths = [x.to(device) for x in batch]
+            traj, alpha_true, lengths = [x.to(device) for x in batch]
 
             optimizer.zero_grad()
-            alpha_pred, D0_pred = model(traj)
+            alpha_pred = model(traj)
 
             # Compute loss - some loss functions return breakdown dict
-            loss_output = loss_fn(alpha_pred, D0_pred, alpha_true, D0_true, traj, lengths)
+            loss_output = loss_fn(alpha_pred, alpha_true, traj, lengths)
             if isinstance(loss_output, tuple):
                 loss, loss_breakdown = loss_output
             else:
                 loss = loss_output
                 loss_breakdown = None
+
+            batch_reg_breakdown: dict[str, float] = {}
+            if l1_coeff or l2_coeff:
+                reg_loss, batch_reg_breakdown = compute_regularization(
+                    model, l1_coeff, l2_coeff
+                )
+                if reg_loss is not None:
+                    loss = loss + reg_loss
+                    if loss_breakdown is None:
+                        loss_breakdown = {}
+                    loss_breakdown.update(batch_reg_breakdown)
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -151,10 +205,13 @@ def train(
             pbar.set_postfix({"loss": f"{loss.item():.4f}"})
             
             if batch_idx % log_interval == 0:
-                logger.log({
+                metrics = {
                     "train/batch_loss": loss.item(),
                     "train/step": epoch * total_batches + batch_idx,
-                })
+                }
+                for reg_name, reg_value in batch_reg_breakdown.items():
+                    metrics[f"train/regularization/{reg_name}"] = reg_value
+                logger.log(metrics)
         
         scheduler.step()
         
@@ -165,8 +222,8 @@ def train(
         
         with torch.no_grad():
             for batch in val_loader:
-                traj, alpha_true, D0_true, lengths = [x.to(device) for x in batch]
-                alpha_pred, D0_pred = model(traj)
+                traj, alpha_true, lengths = [x.to(device) for x in batch]
+                alpha_pred = model(traj)
                 
                 val_loss = torch.nn.functional.mse_loss(alpha_pred, alpha_true)
                 val_losses.append(val_loss.item())
@@ -386,4 +443,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

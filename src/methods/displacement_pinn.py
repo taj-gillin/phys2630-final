@@ -1,4 +1,9 @@
-"""Displacement distribution PINN for anomalous diffusion parameter inference."""
+"""
+Displacement distribution PINN for anomalous diffusion exponent inference.
+
+Following the AnDi Challenge conventions, we fit α from the displacement
+distribution, which for FBM is Gaussian with variance ∝ τ^α.
+"""
 
 import numpy as np
 import torch
@@ -16,11 +21,10 @@ class DisplacementPINN(InferenceMethod):
     at different lag times, with physics constraint from the diffusion equation.
     
     Physics:
-        For anomalous diffusion, the displacement distribution evolves as:
-        ∂P/∂τ = D(τ) · (∂²P/∂Δx² + ∂²P/∂Δy²)
-        where D(τ) = D0 · α · τ^(α-1)
+        For anomalous diffusion, displacement variance scales as:
+        Var[Δx](τ) ∝ τ^α
         
-    The solution is Gaussian with variance σ²(τ) = 2·D0·τ^α for each dimension.
+        The solution is Gaussian with σ²(τ) ∝ τ^α for each dimension.
     """
     
     def __init__(
@@ -30,8 +34,7 @@ class DisplacementPINN(InferenceMethod):
         epochs: int = 1000,
         lr: float = 0.001,
         lambda_physics: float = 0.1,
-        alpha_init: float = 0.8,
-        D0_init: float = 1.0,
+        alpha_init: float = 1.0,
         max_lag_fraction: float = 0.25,
         n_collocation: int = 500,
         verbose: bool = False,
@@ -44,7 +47,6 @@ class DisplacementPINN(InferenceMethod):
             lr: Learning rate
             lambda_physics: Weight for physics loss
             alpha_init: Initial guess for alpha
-            D0_init: Initial guess for D0
             max_lag_fraction: Maximum lag as fraction of trajectory length
             n_collocation: Number of collocation points for physics loss
             verbose: Print progress during training
@@ -56,7 +58,6 @@ class DisplacementPINN(InferenceMethod):
         self.lr = lr
         self.lambda_physics = lambda_physics
         self.alpha_init = alpha_init
-        self.D0_init = D0_init
         self.max_lag_fraction = max_lag_fraction
         self.n_collocation = n_collocation
         self.verbose = verbose
@@ -77,7 +78,6 @@ class DisplacementPINN(InferenceMethod):
         
         if len(displacements) < 10:
             self._alpha = np.nan
-            self._D0 = np.nan
             self._is_fitted = True
             return
         
@@ -100,11 +100,12 @@ class DisplacementPINN(InferenceMethod):
         )
         
         # Learnable physics parameters
+        # variance = prefactor * tau^alpha (in normalized space)
         alpha = nn.Parameter(torch.tensor(self.alpha_init))
-        log_D0 = nn.Parameter(torch.tensor(np.log(self.D0_init)))
+        log_prefactor = nn.Parameter(torch.tensor(0.0))
         
         optimizer = torch.optim.Adam(
-            list(net.parameters()) + [alpha, log_D0],
+            list(net.parameters()) + [alpha, log_prefactor],
             lr=self.lr,
         )
         
@@ -116,12 +117,12 @@ class DisplacementPINN(InferenceMethod):
             optimizer.zero_grad()
             
             # === Data Loss: Gaussian likelihood ===
-            # For anomalous diffusion, displacement variance is 2*D0*τ^α per dimension
-            D0 = torch.exp(log_D0)
-            variance = 2.0 * D0 * torch.pow(tau, alpha)
+            # Displacement variance ∝ τ^α
+            prefactor = torch.exp(log_prefactor)
+            variance = prefactor * torch.pow(tau, alpha)
             
             # Gaussian log-likelihood (normalized displacement space)
-            log_prob = -0.5 * (dx**2 + dy**2) / (variance / disp_std**2) - torch.log(variance / disp_std**2) - np.log(2 * np.pi)
+            log_prob = -0.5 * (dx**2 + dy**2) / variance - torch.log(variance) - np.log(2 * np.pi)
             loss_data = -log_prob.mean()
             
             # === Physics Loss: Check that network output matches Gaussian ===
@@ -135,7 +136,7 @@ class DisplacementPINN(InferenceMethod):
             log_P_net = net(inp_coll).squeeze()
             
             # Theoretical Gaussian log-probability
-            var_coll = 2.0 * D0 * torch.pow(tau_coll, alpha)
+            var_coll = prefactor * torch.pow(tau_coll, alpha)
             log_P_theory = -0.5 * (dx_coll**2 + dy_coll**2) / var_coll - torch.log(var_coll) - np.log(2 * np.pi)
             
             # Physics loss: network should match Gaussian
@@ -158,11 +159,9 @@ class DisplacementPINN(InferenceMethod):
             })
             
             if self.verbose and epoch % 200 == 0:
-                print(f"Epoch {epoch}: loss={loss.item():.4f}, α={alpha.item():.4f}, D0={D0.item():.4f}")
+                print(f"Epoch {epoch}: loss={loss.item():.4f}, α={alpha.item():.4f}")
         
-        # Account for normalization in D0
         self._alpha = alpha.item()
-        self._D0 = torch.exp(log_D0).item() * disp_std**2
         self._is_fitted = True
     
     def _extract_displacements(self, trajectory: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -192,5 +191,3 @@ class DisplacementPINN(InferenceMethod):
     def loss_history(self) -> list[dict]:
         """Training loss history with breakdown."""
         return self._loss_history
-
-

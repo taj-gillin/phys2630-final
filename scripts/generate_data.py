@@ -2,6 +2,9 @@
 """
 Generate FBM trajectories and upload to HuggingFace Hub.
 
+Following the AnDi Challenge (https://www.nature.com/articles/s41467-021-26320-w),
+trajectories are normalized with MSD(τ) ∝ τ^α. We focus on predicting α only.
+
 Usage:
     python scripts/generate_data.py --config configs/data/generate.yaml
     sbatch slurm/submit.slurm generate
@@ -23,37 +26,49 @@ from utils.config import load_config
 from utils.wandb_logger import init_wandb
 
 
-def generate_trajectory(traj_id: int, seed: int, alpha_range: tuple, D0_range: tuple, length_range: tuple) -> dict:
-    """Generate a single 2D FBM trajectory."""
+def generate_trajectory(traj_id: int, seed: int, alpha_range: tuple, length_range: tuple) -> dict:
+    """
+    Generate a single 2D FBM trajectory following AnDi Challenge conventions.
+    
+    AnDi Challenge (https://www.nature.com/articles/s41467-021-26320-w):
+        - Task 1: Infer α (anomalous exponent)
+        - Task 2: Classify diffusion model
+        - Trajectories are normalized with MSD(τ) ∝ τ^α
+        
+    We use andi_datasets native 2D generation which produces normalized 
+    trajectories where Var[x(T)] ≈ 1, giving MSD(τ) ≈ d·(τ/T)^α for d dimensions.
+    """
     rng = np.random.RandomState(seed + traj_id)
     
     alpha = rng.uniform(*alpha_range)
-    D0 = rng.uniform(*D0_range)
     length = rng.randint(length_range[0], length_range[1] + 1)
     
     from andi_datasets.models_theory import models_theory
     MT = models_theory()
     
     np.random.seed(seed + traj_id)
-    traj_x = MT.fbm(T=length, alpha=alpha)
-    traj_y = MT.fbm(T=length, alpha=alpha)
     
-    scale = np.sqrt(D0)
+    # Use native 2D generation: D=2 returns [x₁...xₜ, y₁...yₜ]
+    traj_2d = MT.fbm(T=length, alpha=alpha, D=2)
+    traj_x = traj_2d[:length]
+    traj_y = traj_2d[length:]
+    
+    # No scaling needed - use normalized trajectories as per AnDi convention
+    # MSD(τ) ∝ (τ/T)^α, which preserves the α we want to infer
     
     return {
         "trajectory_id": traj_id,
         "alpha": float(alpha),
-        "D0": float(D0),
         "length": int(length),
-        "x": (traj_x * scale).tolist(),
-        "y": (traj_y * scale).tolist(),
+        "x": traj_x.tolist(),
+        "y": traj_y.tolist(),
     }
 
 
-def generate_batch(start_idx: int, batch_size: int, seed: int, alpha_range: tuple, D0_range: tuple, length_range: tuple) -> list:
+def generate_batch(start_idx: int, batch_size: int, seed: int, alpha_range: tuple, length_range: tuple) -> list:
     """Generate a batch of trajectories."""
     return [
-        generate_trajectory(start_idx + i, seed, alpha_range, D0_range, length_range)
+        generate_trajectory(start_idx + i, seed, alpha_range, length_range)
         for i in range(batch_size)
     ]
 
@@ -73,7 +88,6 @@ def main():
     repo_id = hf_cfg["repo_id"]
     n_trajectories = gen_cfg["n_trajectories"]
     alpha_range = tuple(gen_cfg["alpha_range"])
-    D0_range = tuple(gen_cfg["D0_range"])
     length_range = tuple(gen_cfg["length_range"])
     seed = gen_cfg["seed"]
     
@@ -84,12 +98,11 @@ def main():
     logger = init_wandb(config, job_type="generate")
     
     print("=" * 60)
-    print("FBM Trajectory Dataset Generation")
+    print("FBM Trajectory Dataset Generation (AnDi Convention)")
     print("=" * 60)
     print(f"Repository: {repo_id}")
     print(f"Trajectories: {n_trajectories:,}")
     print(f"Alpha range: {alpha_range}")
-    print(f"D0 range: {D0_range}")
     print(f"Length range: {length_range}")
     print(f"Workers: {n_workers}")
     if logger.run_url:
@@ -107,7 +120,7 @@ def main():
             actual_size = min(batch_size, n_trajectories - start_idx)
             future = executor.submit(
                 generate_batch, start_idx, actual_size, seed,
-                alpha_range, D0_range, length_range
+                alpha_range, length_range
             )
             futures.append(future)
         
@@ -118,12 +131,10 @@ def main():
     
     # Statistics
     alphas = [r["alpha"] for r in records]
-    D0s = [r["D0"] for r in records]
     lengths = [r["length"] for r in records]
     
     print(f"\nGenerated {len(records):,} trajectories")
     print(f"Alpha:  [{min(alphas):.3f}, {max(alphas):.3f}], mean={np.mean(alphas):.3f}")
-    print(f"D0:     [{min(D0s):.3f}, {max(D0s):.3f}], mean={np.mean(D0s):.3f}")
     print(f"Length: [{min(lengths)}, {max(lengths)}], mean={np.mean(lengths):.1f}")
     
     # Log to wandb
@@ -131,8 +142,6 @@ def main():
         "data/n_trajectories": len(records),
         "data/alpha_min": min(alphas),
         "data/alpha_max": max(alphas),
-        "data/D0_min": min(D0s),
-        "data/D0_max": max(D0s),
     })
     
     if args.dry_run:
@@ -161,7 +170,7 @@ def main():
     dataset.push_to_hub(
         repo_id,
         token=token,
-        commit_message=f"Upload FBM dataset ({n_trajectories:,} trajectories)",
+        commit_message=f"Upload FBM dataset ({n_trajectories:,} trajectories, AnDi convention)",
     )
     
     logger.set_summary("upload_success", True)
@@ -174,4 +183,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

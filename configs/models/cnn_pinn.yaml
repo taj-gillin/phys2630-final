@@ -34,13 +34,16 @@ model:
     channels: 32
     dropout: 0.1
   loss_params:
-    lambda_physics: 0.01
+    lambda_physics: 0.1
 
 training:
   epochs: 50
   batch_size: 128
   lr: 0.001
   weight_decay: 0.0001
+  regularization:
+    l1: 0.0
+    l2: 0.0
   num_workers: 4
   log_interval: 10
   early_stopping:

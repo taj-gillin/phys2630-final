@@ -1,4 +1,11 @@
-"""Pure MSD fitting baseline for anomalous diffusion parameter inference."""
+"""
+Pure MSD fitting baseline for anomalous diffusion exponent inference.
+
+Following the AnDi Challenge conventions, we fit:
+    log(MSD) = α·log(τ) + const
+
+to extract α from the slope of the log-log MSD plot.
+"""
 
 import numpy as np
 from scipy.stats import linregress
@@ -10,7 +17,7 @@ class MSDFitting(InferenceMethod):
     """
     Traditional MSD-based estimation of anomalous diffusion exponent.
     
-    Fits log(MSD) = α·log(τ) + log(4·D0) via linear regression.
+    Fits log(MSD) = α·log(τ) + const via linear regression.
     """
     
     def __init__(self, max_lag_fraction: float = 0.25):
@@ -24,7 +31,7 @@ class MSDFitting(InferenceMethod):
     
     def fit(self, trajectory: np.ndarray) -> None:
         """
-        Fit alpha and D0 from trajectory MSD.
+        Fit alpha from trajectory MSD.
         
         Args:
             trajectory: Array of shape (T, 2) with (x, y) positions
@@ -39,7 +46,6 @@ class MSDFitting(InferenceMethod):
         if np.sum(mask) < 3:
             # Not enough points for regression
             self._alpha = np.nan
-            self._D0 = np.nan
             self._r_squared = 0.0
             self._is_fitted = True
             return
@@ -50,9 +56,8 @@ class MSDFitting(InferenceMethod):
         
         slope, intercept, r, _, _ = linregress(log_lags, log_msd)
         
-        # MSD = 4 * D0 * τ^α  =>  log(MSD) = log(4*D0) + α*log(τ)
+        # MSD ∝ τ^α  =>  log(MSD) = α·log(τ) + const
         self._alpha = slope
-        self._D0 = np.exp(intercept) / 4.0
         self._r_squared = r ** 2
         self._is_fitted = True
     
@@ -73,9 +78,3 @@ class MSDFitting(InferenceMethod):
     def r_squared(self) -> float:
         """R-squared of the log-log fit."""
         return self._r_squared
-
-
-
-
-
-

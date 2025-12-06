@@ -121,6 +121,18 @@ training:
   epochs: 50
   batch_size: 128
   lr: 0.001
+
+Optional regularization settings live under the `training` block:
+
+```yaml
+training:
+  epochs: 50
+  batch_size: 128
+  lr: 0.001
+  regularization:
+    l1: 1e-6
+    l2: 1e-4
+```
 ```
 
 ## Weights & Biases

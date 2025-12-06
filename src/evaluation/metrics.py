@@ -1,4 +1,9 @@
-"""Evaluation metrics and comparison utilities."""
+"""
+Evaluation metrics and comparison utilities.
+
+Following the AnDi Challenge (https://www.nature.com/articles/s41467-021-26320-w),
+we evaluate methods on α (anomalous diffusion exponent) prediction.
+"""
 
 from dataclasses import dataclass
 from typing import Optional
@@ -20,8 +25,6 @@ class TrajectoryResult:
     trajectory_id: int
     alpha_true: float
     alpha_pred: float
-    D0_true: Optional[float]
-    D0_pred: float
     method_name: str
     
     @property
@@ -43,8 +46,6 @@ class TrajectoryResult:
             "alpha_pred": self.alpha_pred,
             "alpha_error": self.alpha_error,
             "alpha_relative_error": self.alpha_relative_error,
-            "D0_true": self.D0_true,
-            "D0_pred": self.D0_pred,
             "method_name": self.method_name,
         }
 
@@ -97,19 +98,16 @@ def evaluate_method(
         
         method.reset()
         try:
-            alpha_pred, D0_pred = method.fit_predict(traj.positions)
+            alpha_pred = method.fit_predict(traj.positions)
         except Exception as e:
             if verbose:
                 print(f"  Error on trajectory {i}: {e}")
             alpha_pred = np.nan
-            D0_pred = np.nan
         
         result = TrajectoryResult(
             trajectory_id=traj.trajectory_id or i,
             alpha_true=traj.alpha_true,
             alpha_pred=alpha_pred,
-            D0_true=traj.D0_true,
-            D0_pred=D0_pred,
             method_name=method.name,
         )
         results.append(result)
@@ -249,9 +247,3 @@ def print_comparison_table(summaries: dict[str, MethodSummary]) -> None:
         print(f"{name:<25} {summary.mean_alpha_error:>12.4f} {summary.std_alpha_error:>12.4f} {summary.mean_relative_error:>11.2%}")
     
     print("=" * 70)
-
-
-
-
-
-
