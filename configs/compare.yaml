@@ -1,0 +1,60 @@
+# =============================================================================
+# Method Comparison Configuration
+# =============================================================================
+# Compare trained models and traditional methods on test data.
+#
+# Run: sbatch slurm/submit.slurm compare configs/compare.yaml
+# =============================================================================
+
+experiment:
+  name: method_comparison
+  description: Benchmark trained models against baselines
+
+wandb:
+  enabled: true
+  project: anomalous-diffusion
+  entity: taj_gillin-Brown University
+  tags: [comparison, benchmark]
+  notes: Comparing all methods on test trajectories
+
+# Test data from HuggingFace
+data:
+  repo_id: taj-gillin/andi-trajectory
+  alphas: [0.3, 0.5, 0.8, 1.0, 1.2, 1.5, 1.8]
+  max_trajectories: 1000
+  seed: 99
+
+# Traditional methods
+methods:
+  msd_fitting:
+    enabled: true
+    max_lag_fraction: 0.25
+
+# Trained model checkpoints
+models:
+  linear:
+    enabled: true
+    checkpoint: outputs/linear/best.pt
+  
+  mlp:
+    enabled: true
+    checkpoint: outputs/mlp/best.pt
+  
+  lstm:
+    enabled: true
+    checkpoint: outputs/lstm/best.pt
+  
+  cnn:
+    enabled: true
+    checkpoint: outputs/cnn/best.pt
+  
+  hybrid:
+    enabled: true
+    checkpoint: outputs/hybrid/best.pt
+  
+  hybrid_pinn:
+    enabled: true
+    checkpoint: outputs/hybrid_pinn/best.pt
+
+env:
+  device: auto

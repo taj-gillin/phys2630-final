@@ -75,3 +75,5 @@ class MSDFitting(InferenceMethod):
         return self._r_squared
 
 
+
+

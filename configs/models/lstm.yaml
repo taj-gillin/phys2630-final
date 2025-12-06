@@ -1,0 +1,55 @@
+# =============================================================================
+# Model: LSTM Encoder
+# =============================================================================
+# Bidirectional LSTM encoder for sequential pattern recognition.
+#
+# Run: sbatch slurm/submit.slurm train configs/models/lstm.yaml
+# =============================================================================
+
+experiment:
+  name: lstm
+  description: Bidirectional LSTM for sequential trajectory encoding
+
+wandb:
+  enabled: true
+  project: anomalous-diffusion
+  entity: taj_gillin-Brown University
+  tags: [lstm, recurrent, sequential]
+  notes: Bidirectional LSTM encoder - captures temporal patterns
+
+data:
+  repo_id: taj-gillin/andi-trajectory
+  split: train
+  n_train: 50000
+  n_val: 5000
+  alpha_range: [0.1, 2.0]
+  length_range: [50, 1000]
+  pad_to_length: 1000
+  seed: 42
+
+model:
+  encoder: lstm
+  loss: supervised
+  params:
+    hidden_dim: 64
+    num_layers: 2
+    dropout: 0.1
+    bidirectional: true
+
+training:
+  epochs: 50
+  batch_size: 128
+  lr: 0.001
+  weight_decay: 0.0001
+  num_workers: 4
+  log_interval: 10
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.0001
+
+env:
+  device: auto
+  seed: 42
+  deterministic: false
+

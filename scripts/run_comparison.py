@@ -1,139 +1,161 @@
 #!/usr/bin/env python3
 """
-Run method comparison experiment.
+Compare trained models and traditional methods.
 
 Usage:
-    python scripts/run_comparison.py --config experiments/exp_comparison.yaml
+    python scripts/run_comparison.py --config configs/compare.yaml
+    sbatch slurm/submit.slurm compare configs/compare.yaml
 """
 
 import sys
 from pathlib import Path
 import argparse
+import json
+from datetime import datetime
 
-# Add src to path
+import numpy as np
+import torch
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from data.synthetic import generate_dataset
 from data.hf_loader import load_from_hf
-from methods import MSDFitting, MSDPINN, DisplacementPINN
+from methods import MSDFitting, DiffusionPredictorInference
 from evaluation import compare_methods, save_results, print_comparison_table
 from utils.config import load_config, ensure_dir
+from utils.wandb_logger import init_wandb
 
 
-def load_dataset(cfg: dict):
-    """Load dataset from HuggingFace or generate synthetically."""
-    source = cfg["data"].get("source", "synthetic")
-    
-    if source == "huggingface":
-        print("\n[1/3] Loading trajectories from HuggingFace...")
-        dataset = load_from_hf(
-            repo_id=cfg["data"].get("repo_id", "taj-gillin/andi-trajectory"),
-            alphas=cfg["data"].get("alphas"),
-            lengths=cfg["data"].get("lengths"),
-            max_trajectories=cfg["data"].get("max_trajectories"),
-        )
-        print(f"  Loaded {len(dataset)} trajectories from HuggingFace")
-    else:
-        print("\n[1/3] Generating synthetic FBM trajectories...")
-        dataset = generate_dataset(
-            alphas=cfg["data"]["alphas"],
-            trajectories_per_alpha=cfg["data"]["trajectories_per_alpha"],
-            trajectory_length=cfg["data"]["trajectory_length"],
-            D0=cfg["data"]["D0"],
-            seed=cfg["data"].get("seed"),
-        )
-        print(f"  Generated {len(dataset)} trajectories")
-        print(f"  Alpha values: {cfg['data']['alphas']}")
-        print(f"  Trajectory length: {cfg['data']['trajectory_length']}")
-    
-    return dataset
+def get_device(config: dict) -> str:
+    """Get device from config."""
+    device_cfg = config.get("env", {}).get("device", "auto")
+    if device_cfg == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    return device_cfg
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run method comparison experiment")
-    parser.add_argument("--config", required=True, help="Path to config YAML")
+    parser = argparse.ArgumentParser(description="Compare methods")
+    parser.add_argument("--config", required=True, help="Path to config")
     args = parser.parse_args()
     
-    # Load configuration
-    cfg = load_config(args.config)
+    config = load_config(args.config)
+    exp_name = config["experiment"]["name"]
+    device = get_device(config)
+    
+    # Output directory
+    output_dir = Path("outputs") / exp_name
+    ensure_dir(output_dir)
+    
+    # Initialize wandb
+    logger = init_wandb(config, job_type="compare")
     
     print("=" * 60)
-    print("Per-Trajectory PINN Comparison Experiment")
+    print(f"Method Comparison: {exp_name}")
     print("=" * 60)
+    print(f"Device: {device}")
+    print(f"Output: {output_dir}")
+    print(f"Start: {datetime.now()}")
+    if logger.run_url:
+        print(f"Wandb: {logger.run_url}")
     
-    # Load dataset (from HF or generate)
-    dataset = load_dataset(cfg)
+    # Load test data
+    data_cfg = config["data"]
+    print("\nLoading test data from HuggingFace...")
+    
+    dataset = load_from_hf(
+        repo_id=data_cfg["repo_id"],
+        alphas=data_cfg.get("alphas"),
+        max_trajectories=data_cfg.get("max_trajectories"),
+        seed=data_cfg.get("seed", 99),
+    )
+    print(f"  Loaded {len(dataset)} test trajectories")
     
     # Initialize methods
-    print("\n[2/3] Initializing inference methods...")
+    print("\nInitializing methods...")
     methods = []
     
-    # MSD Fitting baseline
-    msd_cfg = cfg["methods"]["msd_fitting"]
-    methods.append(MSDFitting(
-        max_lag_fraction=msd_cfg["max_lag_fraction"],
-    ))
-    print(f"  - MSD Fitting (baseline)")
+    # Traditional methods
+    methods_cfg = config.get("methods", {})
+    if methods_cfg.get("msd_fitting", {}).get("enabled", True):
+        cfg = methods_cfg["msd_fitting"]
+        methods.append(MSDFitting(max_lag_fraction=cfg.get("max_lag_fraction", 0.25)))
+        print("  ✓ MSD Fitting (baseline)")
     
-    # MSD PINN
-    pinn_cfg = cfg["methods"]["msd_pinn"]
-    methods.append(MSDPINN(
-        epochs=pinn_cfg["epochs"],
-        lr=pinn_cfg["lr"],
-        alpha_init=pinn_cfg.get("alpha_init", 0.8),
-        D0_init=pinn_cfg.get("D0_init", 1.0),
-        max_lag_fraction=pinn_cfg.get("max_lag_fraction", 0.25),
-    ))
-    print(f"  - MSD PINN ({pinn_cfg['epochs']} epochs)")
+    # Trained models
+    models_cfg = config.get("models", {})
+    for name, model_cfg in models_cfg.items():
+        if not model_cfg.get("enabled", True):
+            continue
+        
+        checkpoint = Path(model_cfg.get("checkpoint", f"outputs/{name}/best.pt"))
+        if not checkpoint.exists():
+            print(f"  ✗ {name}: checkpoint not found at {checkpoint}")
+            continue
+        
+        try:
+            encoder_name = name.replace("_pinn", "")
+            inference = DiffusionPredictorInference(
+                checkpoint_path=str(checkpoint),
+                encoder_name=encoder_name,
+                device=device,
+            )
+            inference.name = name.upper().replace("_", "+")
+            methods.append(inference)
+            print(f"  ✓ {inference.name}")
+        except Exception as e:
+            print(f"  ✗ {name}: {e}")
     
-    # Displacement PINN
-    disp_cfg = cfg["methods"]["displacement_pinn"]
-    methods.append(DisplacementPINN(
-        hidden_layers=disp_cfg["hidden_layers"],
-        hidden_dim=disp_cfg["hidden_dim"],
-        epochs=disp_cfg["epochs"],
-        lr=disp_cfg["lr"],
-        lambda_physics=disp_cfg["lambda_physics"],
-        alpha_init=disp_cfg.get("alpha_init", 0.8),
-        D0_init=disp_cfg.get("D0_init", 1.0),
-        max_lag_fraction=disp_cfg.get("max_lag_fraction", 0.25),
-        n_collocation=disp_cfg.get("n_collocation", 500),
-    ))
-    print(f"  - Displacement PINN ({disp_cfg['epochs']} epochs, {disp_cfg['hidden_layers']}x{disp_cfg['hidden_dim']} network)")
+    if len(methods) < 2:
+        print("\nError: Need at least 2 methods. Train models first.")
+        logger.finish()
+        return
     
     # Run comparison
-    print("\n[3/3] Running comparison...")
+    print("\nRunning comparison...")
     comparison = compare_methods(methods, dataset, verbose=True)
     
-    # Print summary table
+    # Log to wandb
+    for method_name, summary in comparison["summaries"].items():
+        logger.log({
+            f"compare/{method_name}/alpha_mae": summary.get("alpha_mae", 0),
+            f"compare/{method_name}/alpha_rmse": summary.get("alpha_rmse", 0),
+            f"compare/{method_name}/time_mean": summary.get("time_mean", 0),
+        })
+    
     print_comparison_table(comparison["summaries"])
     
     # Save results
-    output_dir = Path(cfg["output"]["dir"])
-    ensure_dir(output_dir)
     save_results(comparison, output_dir)
-    print(f"\nResults saved to: {output_dir}/comparison_results.json")
+    print(f"\nResults saved to: {output_dir}")
     
-    # Print per-alpha breakdown
+    # Per-alpha breakdown
+    alphas = data_cfg.get("alphas", [])
+    if alphas:
+        print("\n" + "=" * 60)
+        print("Per-Alpha Breakdown")
+        print("=" * 60)
+        
+        for alpha in alphas:
+            print(f"\nα = {alpha}:")
+            for method_name, results in comparison["results"].items():
+                alpha_results = [r for r in results if abs(r.alpha_true - alpha) < 0.05]
+                if alpha_results:
+                    errors = [r.alpha_error for r in alpha_results if not np.isnan(r.alpha_pred)]
+                    if errors:
+                        mean_err = np.mean(errors)
+                        std_err = np.std(errors)
+                        print(f"  {method_name:<15}: {mean_err:.4f} ± {std_err:.4f}")
+                        
+                        logger.log({
+                            f"per_alpha/{method_name}/alpha_{alpha:.1f}": mean_err,
+                        })
+    
+    logger.finish()
+    
     print("\n" + "=" * 60)
-    print("Per-Alpha Breakdown")
-    print("=" * 60)
-    
-    for alpha in cfg["data"]["alphas"]:
-        print(f"\nAlpha = {alpha}:")
-        for method_name, results in comparison["results"].items():
-            alpha_results = [r for r in results if abs(r.alpha_true - alpha) < 0.01]
-            if alpha_results:
-                errors = [r.alpha_error for r in alpha_results if not __import__('numpy').isnan(r.alpha_pred)]
-                if errors:
-                    mean_err = __import__('numpy').mean(errors)
-                    print(f"  {method_name:<25}: error = {mean_err:.4f}")
-    
-    print("\n" + "=" * 60)
-    print("Experiment complete!")
+    print(f"Complete! End: {datetime.now()}")
     print("=" * 60)
 
 
 if __name__ == "__main__":
     main()
-

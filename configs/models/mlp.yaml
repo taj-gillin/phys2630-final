@@ -1,0 +1,55 @@
+# =============================================================================
+# Model: MLP Encoder
+# =============================================================================
+# Multi-layer perceptron encoder for diffusion parameter prediction.
+#
+# Run: sbatch slurm/submit.slurm train configs/models/mlp.yaml
+# =============================================================================
+
+experiment:
+  name: mlp
+  description: MLP encoder with multiple hidden layers
+
+wandb:
+  enabled: true
+  project: anomalous-diffusion
+  entity: taj_gillin-Brown University
+  tags: [mlp, deep]
+  notes: Multi-layer perceptron encoder
+
+data:
+  repo_id: taj-gillin/andi-trajectory
+  split: train
+  n_train: 50000
+  n_val: 5000
+  alpha_range: [0.1, 2.0]
+  length_range: [50, 1000]
+  pad_to_length: 1000
+  seed: 42
+
+model:
+  encoder: mlp
+  loss: supervised
+  params:
+    hidden_dim: 512
+    num_layers: 4
+    output_dim: 128
+    dropout: 0.2
+
+training:
+  epochs: 50
+  batch_size: 128
+  lr: 0.001
+  weight_decay: 0.0001
+  num_workers: 4
+  log_interval: 10
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.0001
+
+env:
+  device: auto
+  seed: 42
+  deterministic: false
+

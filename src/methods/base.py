@@ -64,3 +64,5 @@ class InferenceMethod(ABC):
         return f"{self.__class__.__name__}(name='{self.name}', {status})"
 
 
+
+

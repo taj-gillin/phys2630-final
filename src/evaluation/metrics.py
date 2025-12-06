@@ -251,3 +251,5 @@ def print_comparison_table(summaries: dict[str, MethodSummary]) -> None:
     print("=" * 70)
 
 
+
+

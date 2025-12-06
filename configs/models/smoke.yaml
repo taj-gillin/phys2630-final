@@ -1,0 +1,52 @@
+# =============================================================================
+# Smoke Test Configuration
+# =============================================================================
+# Quick test to verify the training pipeline works.
+#
+# Run: sbatch slurm/submit.slurm train configs/models/smoke.yaml
+# =============================================================================
+
+experiment:
+  name: smoke_test
+  description: Quick pipeline validation
+
+wandb:
+  enabled: true
+  project: anomalous-diffusion
+  entity: taj_gillin-Brown University
+  tags: [smoke, test, quick]
+  notes: Quick smoke test
+
+data:
+  repo_id: taj-gillin/andi-trajectory
+  split: train
+  n_train: 1000
+  n_val: 200
+  alpha_range: [0.1, 2.0]
+  length_range: [50, 500]
+  pad_to_length: 500
+  seed: 42
+
+model:
+  encoder: mlp
+  loss: supervised
+  params:
+    hidden_dim: 64
+    num_layers: 2
+    output_dim: 32
+    dropout: 0.1
+
+training:
+  epochs: 3
+  batch_size: 64
+  lr: 0.001
+  weight_decay: 0.0001
+  num_workers: 2
+  log_interval: 5
+  early_stopping:
+    enabled: false
+
+env:
+  device: auto
+  seed: 42
+

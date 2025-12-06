@@ -1,0 +1,54 @@
+# =============================================================================
+# Model: Hybrid Encoder (CNN + LSTM)
+# =============================================================================
+# Combines CNN for local patterns with LSTM for sequential dependencies.
+#
+# Run: sbatch slurm/submit.slurm train configs/models/hybrid.yaml
+# =============================================================================
+
+experiment:
+  name: hybrid
+  description: CNN + LSTM hybrid for local and sequential features
+
+wandb:
+  enabled: true
+  project: anomalous-diffusion
+  entity: taj_gillin-Brown University
+  tags: [hybrid, cnn, lstm, combined]
+  notes: Hybrid encoder - CNN for local features, LSTM for temporal
+
+data:
+  repo_id: taj-gillin/andi-trajectory
+  split: train
+  n_train: 50000
+  n_val: 5000
+  alpha_range: [0.1, 2.0]
+  length_range: [50, 1000]
+  pad_to_length: 1000
+  seed: 42
+
+model:
+  encoder: hybrid
+  loss: supervised
+  params:
+    hidden_dim: 64
+    cnn_channels: 32
+    dropout: 0.1
+
+training:
+  epochs: 50
+  batch_size: 128
+  lr: 0.001
+  weight_decay: 0.0001
+  num_workers: 4
+  log_interval: 10
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.0001
+
+env:
+  device: auto
+  seed: 42
+  deterministic: false
+
