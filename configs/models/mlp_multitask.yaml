@@ -1,25 +1,26 @@
 # =============================================================================
-# Model: LSTM Encoder
+# Model: MLP Encoder - Multi-Task (Task 1 + Task 2)
 # =============================================================================
-# Bidirectional LSTM encoder for sequential pattern recognition.
+# Simple MLP baseline for both α inference and model classification.
 #
-# Run: sbatch slurm/submit.slurm train configs/models/lstm.yaml
+# Run: sbatch slurm/submit.slurm train configs/models/mlp_multitask.yaml
 # =============================================================================
 
 experiment:
-  name: lstm
-  description: Bidirectional LSTM for sequential trajectory encoding
+  name: mlp-multitask
+  description: Multi-task MLP for α inference + model classification
 
 wandb:
   enabled: true
   project: anomalous-diffusion
   entity: taj_gillin-Brown University
-  tags: [lstm, recurrent, sequential]
-  notes: Bidirectional LSTM encoder - captures temporal patterns
+  tags: [mlp, baseline, multitask, andi-challenge, task1, task2]
+  notes: Multi-task learning baseline with MLP encoder
 
 data:
   repo_id: taj-gillin/andi-trajectory
-  split: train
+  train_split: train
+  val_split: validation
   n_train: 50000
   n_val: 5000
   alpha_range: [0.1, 2.0]
@@ -28,13 +29,16 @@ data:
   seed: 42
 
 model:
-  encoder: lstm
-  loss: supervised
+  encoder: mlp
+  tasks: [alpha, model]
+  loss: multitask
+  loss_params:
+    lambda_alpha: 1.0
+    lambda_model: 1.0
   params:
-    hidden_dim: 64
-    num_layers: 2
-    dropout: 0.1
-    bidirectional: true
+    hidden_dim: 256
+    num_layers: 3
+    dropout: 0.2
 
 training:
   epochs: 200
@@ -47,12 +51,11 @@ training:
   num_workers: 4
   log_interval: 10
   early_stopping:
-    enabled: true
-    patience: 20
+    enabled: false
+    patience: 10
     min_delta: 0.0001
 
 env:
   device: auto
   seed: 42
   deterministic: false
-

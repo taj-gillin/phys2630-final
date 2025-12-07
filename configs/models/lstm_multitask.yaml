@@ -1,0 +1,75 @@
+# =============================================================================
+# Model: LSTM Encoder - Multi-Task (Task 1 + Task 2)
+# =============================================================================
+# Bidirectional LSTM encoder for both α inference and model classification.
+# Following the AnDi Challenge convention.
+#
+# Task 1: Predict α (anomalous diffusion exponent)
+# Task 2: Classify diffusion model (CTRW, FBM, LW, ATTM, SBM)
+#
+# Run: sbatch slurm/submit.slurm train configs/models/lstm_multitask.yaml
+# =============================================================================
+
+experiment:
+  name: lstm-multitask
+  description: Multi-task LSTM for α inference + model classification
+
+wandb:
+  enabled: true
+  project: anomalous-diffusion
+  entity: taj_gillin-Brown University
+  tags: [lstm, multitask, andi-challenge, task1, task2]
+  notes: Multi-task learning - α prediction + model classification
+
+data:
+  repo_id: taj-gillin/andi-trajectory
+  train_split: train
+  val_split: validation
+  n_train: 50000
+  n_val: 5000
+  alpha_range: [0.1, 2.0]
+  length_range: [50, 1000]
+  pad_to_length: 1000
+  seed: 42
+
+model:
+  encoder: lstm
+  # Tasks to perform (single or multi-task)
+  # Options: [alpha], [model], or [alpha, model]
+  tasks: [alpha, model]
+  
+  # Loss function (multitask is automatically selected for multi-task)
+  loss: multitask
+  loss_params:
+    lambda_alpha: 1.0      # Weight for α MSE loss
+    lambda_model: 1.0      # Weight for model classification loss
+    lambda_physics: 0.0    # Weight for physics-informed loss (optional)
+    label_smoothing: 0.0   # Label smoothing for classification
+  
+  # Encoder parameters
+  params:
+    hidden_dim: 64
+    num_layers: 2
+    dropout: 0.1
+    bidirectional: true
+
+training:
+  epochs: 200
+  batch_size: 128
+  lr: 0.001
+  weight_decay: 0.0001
+  scheduler:
+    warmup_epochs: 5
+    min_lr_factor: 0.01
+  num_workers: 4
+  log_interval: 10
+  early_stopping:
+    enabled: true
+    patience: 20
+    min_delta: 0.0001
+
+env:
+  device: auto
+  seed: 42
+  deterministic: false
+

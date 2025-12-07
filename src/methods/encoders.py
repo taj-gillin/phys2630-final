@@ -183,7 +183,7 @@ class CNNEncoder(nn.Module):
         return self.dropout(out)
 
 
-class HybridEncoder(nn.Module):
+class CNNLSTMEncoder(nn.Module):
     """
     Hybrid CNN + LSTM encoder.
     
@@ -246,7 +246,7 @@ ENCODERS = {
     "mlp": MLPEncoder,
     "lstm": LSTMEncoder,
     "cnn": CNNEncoder,
-    "hybrid": HybridEncoder,
+    "cnn-lstm": CNNLSTMEncoder,
 }
 
 
@@ -255,6 +255,7 @@ def create_encoder(name: str, **kwargs) -> nn.Module:
     if name not in ENCODERS:
         raise ValueError(f"Unknown encoder: {name}. Available: {list(ENCODERS.keys())}")
     return ENCODERS[name](**kwargs)
+
 
 
 

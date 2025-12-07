@@ -3,7 +3,8 @@
 Analyze and visualize model results for comparison with AnDi Challenge.
 
 This script provides comprehensive analysis including:
-- Extended metrics (MAE, RMSE, bias, R², percentiles)
+- Task 1: Extended metrics (MAE, RMSE, bias, R², percentiles) for α prediction
+- Task 2: F1-score, confusion matrix for model classification
 - Breakdown by α value ranges
 - Breakdown by trajectory length
 - Visualization of predictions vs ground truth
@@ -19,7 +20,7 @@ import json
 import sys
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Dict, List, Tuple
 import numpy as np
 import torch
 
@@ -27,6 +28,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from data.hf_loader import load_from_hf
+from data.trajectory import MODEL_NAMES, NUM_MODELS
 
 
 @dataclass
@@ -362,12 +364,121 @@ def create_visualizations(
     print(f"  Saved visualizations to {output_dir}")
 
 
+@dataclass
+class ClassificationMetrics:
+    """Classification metrics for Task 2."""
+    n_samples: int = 0
+    accuracy: float = 0.0
+    f1_micro: float = 0.0
+    f1_macro: float = 0.0
+    per_class_f1: Dict[str, float] = field(default_factory=dict)
+    per_class_support: Dict[str, int] = field(default_factory=dict)
+    confusion_matrix: Optional[Dict[str, Dict[str, int]]] = None
+    
+    def to_dict(self) -> dict:
+        return {
+            "n_samples": self.n_samples,
+            "accuracy": self.accuracy,
+            "f1_micro": self.f1_micro,
+            "f1_macro": self.f1_macro,
+            "per_class_f1": self.per_class_f1,
+            "per_class_support": self.per_class_support,
+            "confusion_matrix": self.confusion_matrix,
+        }
+
+
+def compute_classification_metrics(
+    model_true: np.ndarray,
+    model_pred: np.ndarray,
+    class_names: List[str] = None,
+) -> ClassificationMetrics:
+    """Compute classification metrics for Task 2."""
+    if class_names is None:
+        class_names = MODEL_NAMES
+    
+    num_classes = len(class_names)
+    
+    # Filter invalid
+    valid_mask = (model_true >= 0) & (model_true < num_classes)
+    valid_mask &= (model_pred >= 0) & (model_pred < num_classes)
+    model_true = model_true[valid_mask]
+    model_pred = model_pred[valid_mask]
+    
+    n = len(model_true)
+    if n == 0:
+        return ClassificationMetrics()
+    
+    # Confusion matrix
+    cm = np.zeros((num_classes, num_classes), dtype=np.int64)
+    for true, pred in zip(model_true, model_pred):
+        cm[int(true), int(pred)] += 1
+    
+    accuracy = np.trace(cm) / n
+    
+    # Per-class metrics
+    per_class_f1 = {}
+    per_class_support = {}
+    total_tp = 0
+    total_fp = 0
+    total_fn = 0
+    f1_scores = []
+    weights = []
+    
+    for i, name in enumerate(class_names):
+        tp = cm[i, i]
+        fp = cm[:, i].sum() - tp
+        fn = cm[i, :].sum() - tp
+        support = cm[i, :].sum()
+        per_class_support[name] = int(support)
+        
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        per_class_f1[name] = float(f1)
+        
+        if support > 0:
+            f1_scores.append(f1)
+            weights.append(support)
+        
+        total_tp += tp
+        total_fp += fp
+        total_fn += fn
+    
+    # Micro F1
+    micro_precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0.0
+    micro_recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0.0
+    f1_micro = 2 * micro_precision * micro_recall / (micro_precision + micro_recall) if (micro_precision + micro_recall) > 0 else 0.0
+    f1_macro = float(np.mean(f1_scores)) if f1_scores else 0.0
+    
+    # Convert CM to dict
+    cm_dict = {}
+    for i, true_name in enumerate(class_names):
+        cm_dict[true_name] = {}
+        for j, pred_name in enumerate(class_names):
+            cm_dict[true_name][pred_name] = int(cm[i, j])
+    
+    return ClassificationMetrics(
+        n_samples=n,
+        accuracy=float(accuracy),
+        f1_micro=float(f1_micro),
+        f1_macro=float(f1_macro),
+        per_class_f1=per_class_f1,
+        per_class_support=per_class_support,
+        confusion_matrix=cm_dict,
+    )
+
+
 def run_inference(
     checkpoint_path: Path,
     dataset,
     device: str = "auto",
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Run inference on dataset and return predictions."""
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
+    """
+    Run inference on dataset and return predictions.
+    
+    Returns:
+        alpha_true, alpha_pred, lengths, model_true, model_pred
+    """
     
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -383,6 +494,7 @@ def run_inference(
     model_config = config.get("model", config)
     encoder_name = model_config.get("encoder", model_config.get("encoder_name", "lstm"))
     encoder_kwargs = model_config.get("params", model_config.get("encoder_kwargs", {}))
+    tasks = model_config.get("tasks", ["alpha"])
     
     # Import and create model
     from methods.predictor import DiffusionPredictor
@@ -390,15 +502,21 @@ def run_inference(
     model = DiffusionPredictor(
         encoder_name=encoder_name,
         encoder_kwargs=encoder_kwargs,
+        tasks=tasks,
     )
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)
     model.eval()
     
+    is_multitask = len(tasks) > 1
+    
     print(f"  Loaded {encoder_name} encoder")
+    print(f"  Tasks: {tasks}")
     
     alpha_true = []
     alpha_pred = []
+    model_true = []
+    model_pred = []
     lengths = []
     
     print(f"Running inference on {len(dataset)} trajectories...")
@@ -410,16 +528,31 @@ def run_inference(
             
             # Get prediction
             positions = torch.tensor(traj.positions, dtype=torch.float32).unsqueeze(0).to(device)
-            pred = model(positions)
+            output = model(positions)
+            
+            # Handle output based on tasks
+            if is_multitask:
+                alpha_out, model_out = output
+                if alpha_out is not None:
+                    alpha_pred.append(alpha_out[0].cpu().numpy())
+                if model_out is not None:
+                    model_pred.append(torch.argmax(model_out, dim=-1)[0].cpu().numpy())
+            else:
+                if 'alpha' in tasks:
+                    alpha_pred.append(output[0].cpu().numpy())
+                elif 'model' in tasks:
+                    model_pred.append(torch.argmax(output, dim=-1)[0].cpu().numpy())
             
             alpha_true.append(traj.alpha_true)
-            alpha_pred.append(pred[0].cpu().numpy())
+            model_true.append(traj.model_true if traj.model_true is not None else -1)
             lengths.append(len(traj.positions))
     
     return (
         np.array(alpha_true),
-        np.array(alpha_pred).flatten(),
+        np.array(alpha_pred).flatten() if alpha_pred else None,
         np.array(lengths),
+        np.array(model_true) if any(m >= 0 for m in model_true) else None,
+        np.array(model_pred).flatten() if model_pred else None,
     )
 
 
@@ -429,7 +562,7 @@ def analyze_checkpoint(
     max_samples: int = 5000,
     device: str = "auto",
 ):
-    """Full analysis of a single checkpoint."""
+    """Full analysis of a single checkpoint (supports Task 1 and Task 2)."""
     
     checkpoint_path = Path(checkpoint_path)
     if output_dir is None:
@@ -453,62 +586,153 @@ def analyze_checkpoint(
     )
     
     # Run inference
-    alpha_true, alpha_pred, lengths = run_inference(checkpoint_path, dataset, device)
+    alpha_true, alpha_pred, lengths, model_true, model_pred = run_inference(
+        checkpoint_path, dataset, device
+    )
     
-    # Compute extended metrics
-    print("\nComputing extended metrics...")
-    overall_metrics = compute_extended_metrics(alpha_true, alpha_pred)
-    
-    print(f"\n{'='*40}")
-    print("OVERALL METRICS")
-    print(f"{'='*40}")
-    print(f"  Samples:        {overall_metrics.n_samples:,}")
-    print(f"  MAE:            {overall_metrics.mae:.4f}")
-    print(f"  RMSE:           {overall_metrics.rmse:.4f}")
-    print(f"  Median AE:      {overall_metrics.median_ae:.4f}")
-    print(f"  R²:             {overall_metrics.r2:.4f}")
-    print(f"  Pearson r:      {overall_metrics.pearson_r:.4f}")
-    print(f"  Bias:           {overall_metrics.bias:.4f} ± {overall_metrics.bias_std:.4f}")
-    print(f"  P90 Error:      {overall_metrics.p90_error:.4f}")
-    print(f"  P95 Error:      {overall_metrics.p95_error:.4f}")
-    print(f"  Max Error:      {overall_metrics.max_error:.4f}")
-    
-    # Breakdown by α
-    print(f"\n{'='*40}")
-    print("BREAKDOWN BY α VALUE")
-    print(f"{'='*40}")
-    alpha_breakdown = breakdown_by_alpha(alpha_true, alpha_pred)
-    for name, metrics in alpha_breakdown.items():
-        print(f"  {name:25s}: MAE={metrics.mae:.4f}, n={metrics.n_samples}")
-    
-    # Breakdown by length
-    print(f"\n{'='*40}")
-    print("BREAKDOWN BY TRAJECTORY LENGTH")
-    print(f"{'='*40}")
-    length_breakdown = breakdown_by_length(alpha_true, alpha_pred, lengths)
-    for name, metrics in length_breakdown.items():
-        print(f"  {name:15s}: MAE={metrics.mae:.4f}, n={metrics.n_samples}")
-    
-    # Create visualizations
-    print(f"\nCreating visualizations...")
-    create_visualizations(alpha_true, alpha_pred, lengths, output_dir, model_name)
-    
-    # Save results to JSON
     results = {
         "model": model_name,
         "checkpoint": str(checkpoint_path),
-        "n_samples": int(overall_metrics.n_samples),
-        "overall": overall_metrics.to_dict(),
-        "by_alpha": {name: m.to_dict() for name, m in alpha_breakdown.items()},
-        "by_length": {name: m.to_dict() for name, m in length_breakdown.items()},
     }
     
+    # Task 1: Alpha prediction metrics
+    if alpha_pred is not None:
+        print("\nComputing Task 1 (α inference) metrics...")
+        overall_metrics = compute_extended_metrics(alpha_true, alpha_pred)
+        
+        print(f"\n{'='*40}")
+        print("TASK 1: α INFERENCE METRICS")
+        print(f"{'='*40}")
+        print(f"  Samples:        {overall_metrics.n_samples:,}")
+        print(f"  MAE:            {overall_metrics.mae:.4f}")
+        print(f"  RMSE:           {overall_metrics.rmse:.4f}")
+        print(f"  Median AE:      {overall_metrics.median_ae:.4f}")
+        print(f"  R²:             {overall_metrics.r2:.4f}")
+        print(f"  Pearson r:      {overall_metrics.pearson_r:.4f}")
+        print(f"  Bias:           {overall_metrics.bias:.4f} ± {overall_metrics.bias_std:.4f}")
+        print(f"  P90 Error:      {overall_metrics.p90_error:.4f}")
+        print(f"  P95 Error:      {overall_metrics.p95_error:.4f}")
+        print(f"  Max Error:      {overall_metrics.max_error:.4f}")
+        
+        # Breakdown by α
+        print(f"\n{'='*40}")
+        print("BREAKDOWN BY α VALUE")
+        print(f"{'='*40}")
+        alpha_breakdown = breakdown_by_alpha(alpha_true, alpha_pred)
+        for name, metrics in alpha_breakdown.items():
+            print(f"  {name:25s}: MAE={metrics.mae:.4f}, n={metrics.n_samples}")
+        
+        # Breakdown by length
+        print(f"\n{'='*40}")
+        print("BREAKDOWN BY TRAJECTORY LENGTH")
+        print(f"{'='*40}")
+        length_breakdown = breakdown_by_length(alpha_true, alpha_pred, lengths)
+        for name, metrics in length_breakdown.items():
+            print(f"  {name:15s}: MAE={metrics.mae:.4f}, n={metrics.n_samples}")
+        
+        # Create visualizations
+        print(f"\nCreating Task 1 visualizations...")
+        create_visualizations(alpha_true, alpha_pred, lengths, output_dir, model_name)
+        
+        results["n_samples"] = int(overall_metrics.n_samples)
+        results["task1_overall"] = overall_metrics.to_dict()
+        results["task1_by_alpha"] = {name: m.to_dict() for name, m in alpha_breakdown.items()}
+        results["task1_by_length"] = {name: m.to_dict() for name, m in length_breakdown.items()}
+    
+    # Task 2: Model classification metrics
+    if model_pred is not None and model_true is not None:
+        print("\nComputing Task 2 (model classification) metrics...")
+        class_metrics = compute_classification_metrics(model_true, model_pred)
+        
+        print(f"\n{'='*40}")
+        print("TASK 2: MODEL CLASSIFICATION METRICS")
+        print(f"{'='*40}")
+        print(f"  Samples:        {class_metrics.n_samples:,}")
+        print(f"  Accuracy:       {class_metrics.accuracy:.4f}")
+        print(f"  F1 (micro):     {class_metrics.f1_micro:.4f}  ← Primary ANDI metric")
+        print(f"  F1 (macro):     {class_metrics.f1_macro:.4f}")
+        
+        print(f"\n  Per-class F1:")
+        for name in MODEL_NAMES:
+            if name in class_metrics.per_class_f1:
+                f1 = class_metrics.per_class_f1[name]
+                support = class_metrics.per_class_support.get(name, 0)
+                print(f"    {name:<10}: F1={f1:.4f}, n={support}")
+        
+        results["task2_classification"] = class_metrics.to_dict()
+        
+        # Create confusion matrix visualization
+        if class_metrics.confusion_matrix:
+            print("\nCreating Task 2 visualizations...")
+            create_confusion_matrix_viz(class_metrics.confusion_matrix, output_dir, model_name)
+    
+    # Save results to JSON
     with open(output_dir / "analysis_results.json", "w") as f:
         json.dump(results, f, indent=2)
     
     print(f"\nResults saved to {output_dir / 'analysis_results.json'}")
     
     return results
+
+
+def create_confusion_matrix_viz(
+    cm: Dict[str, Dict[str, int]],
+    output_dir: Path,
+    model_name: str,
+):
+    """Create confusion matrix visualization."""
+    try:
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as mcolors
+    except ImportError:
+        print("matplotlib not available, skipping confusion matrix visualization")
+        return
+    
+    output_dir = Path(output_dir)
+    class_names = MODEL_NAMES
+    
+    # Convert dict to numpy array
+    n_classes = len(class_names)
+    cm_array = np.zeros((n_classes, n_classes))
+    for i, true_name in enumerate(class_names):
+        for j, pred_name in enumerate(class_names):
+            cm_array[i, j] = cm.get(true_name, {}).get(pred_name, 0)
+    
+    # Normalize for display
+    cm_norm = cm_array.astype('float') / cm_array.sum(axis=1)[:, np.newaxis]
+    cm_norm = np.nan_to_num(cm_norm)
+    
+    fig, ax = plt.subplots(figsize=(8, 8))
+    im = ax.imshow(cm_norm, interpolation='nearest', cmap='Blues')
+    ax.figure.colorbar(im, ax=ax)
+    
+    ax.set(
+        xticks=np.arange(n_classes),
+        yticks=np.arange(n_classes),
+        xticklabels=class_names,
+        yticklabels=class_names,
+        ylabel='True Model',
+        xlabel='Predicted Model',
+    )
+    ax.set_title(f'{model_name}: Confusion Matrix (Task 2)')
+    
+    # Rotate tick labels
+    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+    
+    # Add text annotations
+    thresh = cm_norm.max() / 2.
+    for i in range(n_classes):
+        for j in range(n_classes):
+            ax.text(j, i, f'{int(cm_array[i, j])}\n({cm_norm[i, j]:.2f})',
+                    ha='center', va='center',
+                    color='white' if cm_norm[i, j] > thresh else 'black',
+                    fontsize=9)
+    
+    plt.tight_layout()
+    plt.savefig(output_dir / 'confusion_matrix.png', dpi=150)
+    plt.close()
+    
+    print(f"  Saved confusion matrix to {output_dir / 'confusion_matrix.png'}")
 
 
 def compare_models(
@@ -542,17 +766,35 @@ def compare_models(
         except Exception as e:
             print(f"Error analyzing {model_name}: {e}")
     
-    # Create comparison summary
-    print(f"\n{'='*70}")
-    print("MODEL COMPARISON SUMMARY")
-    print(f"{'='*70}")
-    print(f"{'Model':<20} {'MAE':>10} {'RMSE':>10} {'R²':>10} {'Bias':>10}")
-    print("-" * 70)
+    # Create comparison summary - Task 1
+    has_task1 = any("task1_overall" in r for r in all_results.values())
+    has_task2 = any("task2_classification" in r for r in all_results.values())
     
-    sorted_models = sorted(all_results.items(), key=lambda x: x[1]["overall"]["mae"])
-    for model_name, results in sorted_models:
-        m = results["overall"]
-        print(f"{model_name:<20} {m['mae']:>10.4f} {m['rmse']:>10.4f} {m['r2']:>10.4f} {m['bias']:>10.4f}")
+    if has_task1:
+        print(f"\n{'='*80}")
+        print("MODEL COMPARISON SUMMARY - TASK 1 (α INFERENCE)")
+        print(f"{'='*80}")
+        print(f"{'Model':<20} {'MAE':>10} {'RMSE':>10} {'R²':>10} {'Bias':>10}")
+        print("-" * 80)
+        
+        models_with_task1 = [(n, r) for n, r in all_results.items() if "task1_overall" in r]
+        sorted_models = sorted(models_with_task1, key=lambda x: x[1]["task1_overall"]["mae"])
+        for model_name, results in sorted_models:
+            m = results["task1_overall"]
+            print(f"{model_name:<20} {m['mae']:>10.4f} {m['rmse']:>10.4f} {m['r2']:>10.4f} {m['bias']:>10.4f}")
+    
+    if has_task2:
+        print(f"\n{'='*80}")
+        print("MODEL COMPARISON SUMMARY - TASK 2 (MODEL CLASSIFICATION)")
+        print(f"{'='*80}")
+        print(f"{'Model':<20} {'Accuracy':>10} {'F1 (micro)':>12} {'F1 (macro)':>12}")
+        print("-" * 80)
+        
+        models_with_task2 = [(n, r) for n, r in all_results.items() if "task2_classification" in r]
+        sorted_models = sorted(models_with_task2, key=lambda x: x[1]["task2_classification"]["f1_micro"], reverse=True)
+        for model_name, results in sorted_models:
+            m = results["task2_classification"]
+            print(f"{model_name:<20} {m['accuracy']:>10.4f} {m['f1_micro']:>12.4f} {m['f1_macro']:>12.4f}")
     
     # Save comparison
     with open(output_file, "w") as f:

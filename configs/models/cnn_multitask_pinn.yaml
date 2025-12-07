@@ -1,25 +1,28 @@
 # =============================================================================
-# Model: LSTM Encoder
+# Model: CNN Encoder - Multi-Task + Physics-Informed (Task 1 + Task 2 + PINN)
 # =============================================================================
-# Bidirectional LSTM encoder for sequential pattern recognition.
+# Multi-scale 1D CNN with physics-informed loss for both tasks.
 #
-# Run: sbatch slurm/submit.slurm train configs/models/lstm.yaml
+# Loss = λ_α·MSE(α) + λ_model·CE(model) + λ_physics·Physics(α)
+#
+# Run: sbatch slurm/submit.slurm train configs/models/cnn_multitask_pinn.yaml
 # =============================================================================
 
 experiment:
-  name: lstm
-  description: Bidirectional LSTM for sequential trajectory encoding
+  name: cnn-multitask-pinn
+  description: Physics-informed multi-task CNN for α + model classification
 
 wandb:
   enabled: true
   project: anomalous-diffusion
   entity: taj_gillin-Brown University
-  tags: [lstm, recurrent, sequential]
-  notes: Bidirectional LSTM encoder - captures temporal patterns
+  tags: [cnn, multitask, pinn, physics-informed, andi-challenge]
+  notes: Multi-task learning with physics-informed loss
 
 data:
   repo_id: taj-gillin/andi-trajectory
-  split: train
+  train_split: train
+  val_split: validation
   n_train: 50000
   n_val: 5000
   alpha_range: [0.1, 2.0]
@@ -28,13 +31,17 @@ data:
   seed: 42
 
 model:
-  encoder: lstm
-  loss: supervised
+  encoder: cnn
+  tasks: [alpha, model]
+  loss: multitask
+  loss_params:
+    lambda_alpha: 1.0
+    lambda_model: 1.0
+    lambda_physics: 0.1
+    max_lag_fraction: 0.25
   params:
-    hidden_dim: 64
-    num_layers: 2
+    channels: 64
     dropout: 0.1
-    bidirectional: true
 
 training:
   epochs: 200
@@ -47,12 +54,13 @@ training:
   num_workers: 4
   log_interval: 10
   early_stopping:
-    enabled: true
-    patience: 20
+    enabled: false
+    patience: 10
     min_delta: 0.0001
 
 env:
   device: auto
   seed: 42
   deterministic: false
+
 

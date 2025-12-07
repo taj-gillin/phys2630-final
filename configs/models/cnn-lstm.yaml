@@ -1,13 +1,13 @@
 # =============================================================================
-# Model: Hybrid Encoder (CNN + LSTM)
+# Model: CNN-LSTM Encoder (CNN + LSTM)
 # =============================================================================
 # Combines CNN for local patterns with LSTM for sequential dependencies.
 #
-# Run: sbatch slurm/submit.slurm train configs/models/hybrid.yaml
+# Run: sbatch slurm/submit.slurm train configs/models/cnn-lstm.yaml
 # =============================================================================
 
 experiment:
-  name: hybrid
+  name: cnn-lstm
   description: CNN + LSTM hybrid for local and sequential features
 
 wandb:
@@ -28,7 +28,7 @@ data:
   seed: 42
 
 model:
-  encoder: hybrid
+  encoder: cnn-lstm
   loss: supervised
   params:
     hidden_dim: 64

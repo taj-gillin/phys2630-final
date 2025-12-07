@@ -1,13 +1,17 @@
 """
 Methods for anomalous diffusion parameter estimation.
 
+Following the AnDi Challenge (https://www.nature.com/articles/s41467-021-26320-w):
+- Task 1: α inference (anomalous diffusion exponent)
+- Task 2: Model classification (CTRW, FBM, LW, ATTM, SBM)
+
 Architecture:
-    trajectory (batch, T, 2) → Encoder → features → Heads → (α, D₀)
+    trajectory (batch, T, 2) → Encoder → features → Heads → (α, model_logits)
 
 Components:
-- Encoders: linear, mlp, lstm, cnn, hybrid
-- Losses: supervised, physics, combined
-- Predictor: combines encoder + heads
+- Encoders: linear, mlp, lstm, cnn, cnn-lstm
+- Losses: supervised, physics, combined, classification, multitask
+- Predictor: combines encoder + heads (supports single/multi-task)
 
 The "PINN" aspect is just using the physics loss - any encoder can be a PINN!
 """
@@ -26,7 +30,7 @@ from .encoders import (
     MLPEncoder,
     LSTMEncoder,
     CNNEncoder,
-    HybridEncoder,
+    CNNLSTMEncoder,
     create_encoder,
     ENCODERS,
 )
@@ -35,6 +39,8 @@ from .losses import (
     SupervisedLoss,
     PhysicsLoss,
     CombinedLoss,
+    ModelClassificationLoss,
+    MultiTaskLoss,
     create_loss,
     LOSSES,
 )
@@ -59,7 +65,7 @@ __all__ = [
     "MLPEncoder", 
     "LSTMEncoder",
     "CNNEncoder",
-    "HybridEncoder",
+    "CNNLSTMEncoder",
     "create_encoder",
     "ENCODERS",
     
@@ -67,6 +73,8 @@ __all__ = [
     "SupervisedLoss",
     "PhysicsLoss",
     "CombinedLoss",
+    "ModelClassificationLoss",
+    "MultiTaskLoss",
     "create_loss",
     "LOSSES",
     

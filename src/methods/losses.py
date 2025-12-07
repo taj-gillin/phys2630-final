@@ -1,15 +1,17 @@
 """
-Loss functions for training anomalous diffusion exponent predictors.
+Loss functions for training anomalous diffusion predictors.
 
 Following the AnDi Challenge convention (https://www.nature.com/articles/s41467-021-26320-w),
-we focus on predicting α (anomalous exponent) only. Trajectories are normalized
-so that MSD(τ) ∝ τ^α.
+we support:
+- Task 1: α (anomalous exponent) prediction - uses MSE loss
+- Task 2: Diffusion model classification - uses Cross-Entropy loss
 
-All losses share the same interface:
-    Input:  predictions (alpha), targets (alpha_true), trajectory
-    Output: scalar loss value
+Combined losses for multi-task learning are also provided.
+
+Trajectories are normalized so that MSD(τ) ∝ τ^α.
 """
 
+from typing import Dict, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -232,11 +234,141 @@ class CombinedLoss(nn.Module):
         return total, breakdown
 
 
+class ModelClassificationLoss(nn.Module):
+    """
+    Cross-entropy loss for diffusion model classification (Task 2).
+    
+    Predicts which of the 5 diffusion models generated the trajectory:
+    CTRW, FBM, LW, ATTM, SBM
+    """
+    
+    def __init__(self, num_models: int = 5, label_smoothing: float = 0.0):
+        super().__init__()
+        self.num_models = num_models
+        self.ce_loss = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+    
+    def forward(
+        self,
+        model_logits: torch.Tensor,
+        model_true: torch.Tensor,
+        trajectory: torch.Tensor = None,
+        lengths: torch.Tensor = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            model_logits: (batch, num_models) raw logits
+            model_true: (batch,) ground truth model indices (0-4)
+            trajectory: Not used
+            lengths: Not used
+        """
+        return self.ce_loss(model_logits, model_true.long())
+
+
+class MultiTaskLoss(nn.Module):
+    """
+    Combined loss for multi-task learning: α prediction + model classification.
+    
+    Total = λ_alpha · MSE(α) + λ_model · CE(model)
+    
+    Optionally can include physics loss:
+    Total = λ_alpha · MSE(α) + λ_model · CE(model) + λ_physics · Physics(α)
+    """
+    
+    def __init__(
+        self,
+        lambda_alpha: float = 1.0,
+        lambda_model: float = 1.0,
+        lambda_physics: float = 0.0,
+        num_models: int = 5,
+        max_lag_fraction: float = 0.25,
+        label_smoothing: float = 0.0,
+    ):
+        """
+        Args:
+            lambda_alpha: Weight for alpha MSE loss
+            lambda_model: Weight for model classification loss  
+            lambda_physics: Weight for physics-informed loss (0 = disabled)
+            num_models: Number of diffusion model classes
+            max_lag_fraction: For physics loss
+            label_smoothing: Label smoothing for classification
+        """
+        super().__init__()
+        self.lambda_alpha = lambda_alpha
+        self.lambda_model = lambda_model
+        self.lambda_physics = lambda_physics
+        
+        self.alpha_loss = SupervisedLoss()
+        self.model_loss = ModelClassificationLoss(num_models, label_smoothing)
+        
+        if lambda_physics > 0:
+            self.physics_loss = PhysicsLoss(max_lag_fraction)
+        else:
+            self.physics_loss = None
+    
+    def forward(
+        self,
+        alpha_pred: Optional[torch.Tensor],
+        alpha_true: Optional[torch.Tensor],
+        model_pred: Optional[torch.Tensor],
+        model_true: Optional[torch.Tensor],
+        trajectory: Optional[torch.Tensor] = None,
+        lengths: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, Dict[str, float]]:
+        """
+        Compute multi-task loss.
+        
+        Args:
+            alpha_pred: (batch,) predicted α
+            alpha_true: (batch,) ground truth α
+            model_pred: (batch, num_models) model logits
+            model_true: (batch,) ground truth model indices
+            trajectory: (batch, T, 2) for physics loss
+            lengths: (batch,) sequence lengths
+            
+        Returns:
+            total_loss: scalar
+            breakdown: dict with individual loss components
+        """
+        total = torch.tensor(0.0, device=self._get_device(alpha_pred, model_pred))
+        breakdown = {}
+        
+        # Alpha loss (Task 1)
+        if alpha_pred is not None and alpha_true is not None:
+            loss_alpha = self.alpha_loss(alpha_pred, alpha_true)
+            total = total + self.lambda_alpha * loss_alpha
+            breakdown["alpha_mse"] = loss_alpha.item()
+        
+        # Model classification loss (Task 2)
+        if model_pred is not None and model_true is not None:
+            loss_model = self.model_loss(model_pred, model_true)
+            total = total + self.lambda_model * loss_model
+            breakdown["model_ce"] = loss_model.item()
+        
+        # Optional physics loss
+        if self.physics_loss is not None and alpha_pred is not None and trajectory is not None:
+            loss_phys = self.physics_loss(alpha_pred, alpha_true, trajectory, lengths)
+            total = total + self.lambda_physics * loss_phys
+            breakdown["physics"] = loss_phys.item()
+        
+        breakdown["total"] = total.item()
+        
+        return total, breakdown
+    
+    def _get_device(self, *tensors):
+        """Get device from first non-None tensor."""
+        for t in tensors:
+            if t is not None:
+                return t.device
+        return torch.device("cpu")
+
+
 # Registry for easy access
 LOSSES = {
     "supervised": SupervisedLoss,
     "physics": PhysicsLoss,
     "combined": CombinedLoss,
+    "classification": ModelClassificationLoss,
+    "multitask": MultiTaskLoss,
 }
 
 

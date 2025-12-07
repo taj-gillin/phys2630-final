@@ -1,25 +1,28 @@
 # =============================================================================
-# Model: Hybrid PINN (Physics-Informed Neural Network)
+# Model: MLP Encoder - Multi-Task + Physics-Informed (Task 1 + Task 2 + PINN)
 # =============================================================================
-# Hybrid encoder with physics-informed loss for MSD consistency.
+# MLP baseline with physics-informed loss for both tasks.
 #
-# Run: sbatch slurm/submit.slurm train configs/models/hybrid_pinn.yaml
+# Loss = λ_α·MSE(α) + λ_model·CE(model) + λ_physics·Physics(α)
+#
+# Run: sbatch slurm/submit.slurm train configs/models/mlp_multitask_pinn.yaml
 # =============================================================================
 
 experiment:
-  name: hybrid_pinn
-  description: Physics-informed hybrid model with MSD constraint
+  name: mlp-multitask-pinn
+  description: Physics-informed multi-task MLP for α + model classification
 
 wandb:
   enabled: true
   project: anomalous-diffusion
   entity: taj_gillin-Brown University
-  tags: [hybrid, pinn, physics-informed]
-  notes: PINN - combines data-driven and physics-based loss
+  tags: [mlp, baseline, multitask, pinn, physics-informed, andi-challenge]
+  notes: Multi-task learning baseline with physics-informed loss
 
 data:
   repo_id: taj-gillin/andi-trajectory
-  split: train
+  train_split: train
+  val_split: validation
   n_train: 50000
   n_val: 5000
   alpha_range: [0.1, 2.0]
@@ -28,17 +31,21 @@ data:
   seed: 42
 
 model:
-  encoder: hybrid
-  loss: combined
-  params:
-    hidden_dim: 64
-    cnn_channels: 32
-    dropout: 0.1
+  encoder: mlp
+  tasks: [alpha, model]
+  loss: multitask
   loss_params:
+    lambda_alpha: 1.0
+    lambda_model: 1.0
     lambda_physics: 0.1
+    max_lag_fraction: 0.25
+  params:
+    hidden_dim: 256
+    num_layers: 3
+    dropout: 0.2
 
 training:
-  epochs: 50
+  epochs: 200
   batch_size: 128
   lr: 0.001
   weight_decay: 0.0001
@@ -48,7 +55,7 @@ training:
   num_workers: 4
   log_interval: 10
   early_stopping:
-    enabled: true
+    enabled: false
     patience: 10
     min_delta: 0.0001
 
@@ -56,4 +63,5 @@ env:
   device: auto
   seed: 42
   deterministic: false
+
 

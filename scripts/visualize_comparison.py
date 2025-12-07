@@ -30,8 +30,8 @@ MODEL_COLORS = {
     'lstm': '#2ecc71',      # Green
     'cnn': '#3498db',       # Blue
     'cnn_pinn': '#9b59b6',  # Purple
-    'hybrid': '#e74c3c',    # Red
-    'hybrid_pinn': '#e67e22', # Orange
+    'cnn_lstm': '#e74c3c',    # Red
+    'cnn_lstm_pinn': '#e67e22', # Orange
     'mlp': '#1abc9c',       # Teal
     'linear': '#95a5a6',    # Gray
 }
@@ -39,6 +39,40 @@ MODEL_COLORS = {
 def get_color(model_name: str) -> str:
     """Get color for model, with fallback."""
     return MODEL_COLORS.get(model_name, '#34495e')
+
+
+TASK1_SECTIONS = {
+    "overall": ["task1_overall", "overall"],
+    "by_alpha": ["task1_by_alpha", "by_alpha"],
+    "by_length": ["task1_by_length", "by_length"],
+}
+
+
+def get_task1_section(model_data: dict, section_key: str) -> dict:
+    """Return the requested Task 1 section (with backwards compatibility)."""
+    for key in TASK1_SECTIONS.get(section_key, []):
+        section = model_data.get(key)
+        if section:
+            return section
+    return {}
+
+
+def get_alpha_categories(data: dict) -> list[str]:
+    """Return the ordered α categories present in the data."""
+    for model_data in data.values():
+        section = get_task1_section(model_data, "by_alpha")
+        if section:
+            return list(section.keys())
+    return []
+
+
+def get_length_categories(data: dict) -> list[str]:
+    """Return the ordered length categories present in the data."""
+    for model_data in data.values():
+        section = get_task1_section(model_data, "by_length")
+        if section:
+            return list(section.keys())
+    return []
 
 
 def load_comparison(input_path: Path) -> dict:
@@ -58,7 +92,10 @@ def plot_overall_comparison(data: dict, output_dir: Path):
     axes = axes.flatten()
     
     for ax, metric, label in zip(axes, metrics, metric_labels):
-        values = [data[m]['overall'][metric] for m in models]
+        values = []
+        for m in models:
+            overall = get_task1_section(data[m], "overall")
+            values.append(overall.get(metric, 0.0))
         colors = [get_color(m) for m in models]
         
         bars = ax.bar(models, values, color=colors, edgecolor='white', linewidth=1.5)
@@ -92,9 +129,7 @@ def plot_alpha_breakdown(data: dict, output_dir: Path):
     
     models = list(data.keys())
     
-    # Get all alpha categories (use first model as reference)
-    first_model = list(data.values())[0]
-    alpha_cats = list(first_model.get('by_alpha', {}).keys())
+    alpha_cats = get_alpha_categories(data)
     
     if not alpha_cats:
         print("  Skipping alpha breakdown (no data)")
@@ -107,7 +142,7 @@ def plot_alpha_breakdown(data: dict, output_dir: Path):
     fig, ax = plt.subplots(figsize=(14, 7))
     
     for i, model in enumerate(models):
-        model_data = data[model].get('by_alpha', {})
+        model_data = get_task1_section(data[model], "by_alpha")
         maes = [model_data.get(cat, {}).get('mae', 0) for cat in alpha_cats]
         offset = (i - len(models)/2 + 0.5) * width
         bars = ax.bar(x + offset, maes, width, label=model.upper(), 
@@ -132,9 +167,7 @@ def plot_length_breakdown(data: dict, output_dir: Path):
     
     models = list(data.keys())
     
-    # Get length categories
-    first_model = list(data.values())[0]
-    length_cats = list(first_model.get('by_length', {}).keys())
+    length_cats = get_length_categories(data)
     
     if not length_cats:
         print("  Skipping length breakdown (no data)")
@@ -147,7 +180,7 @@ def plot_length_breakdown(data: dict, output_dir: Path):
     fig, ax = plt.subplots(figsize=(10, 6))
     
     for model in models:
-        model_data = data[model].get('by_length', {})
+        model_data = get_task1_section(data[model], "by_length")
         maes = [model_data.get(cat, {}).get('mae', np.nan) for cat in length_cats]
         ax.plot(length_cats, maes, 'o-', label=model.upper(), 
                color=get_color(model), linewidth=2, markersize=8)
@@ -177,8 +210,12 @@ def plot_bias_comparison(data: dict, output_dir: Path):
     
     # Left: Overall bias with error bars
     ax = axes[0]
-    biases = [data[m]['overall']['bias'] for m in models]
-    bias_stds = [data[m]['overall']['bias_std'] for m in models]
+    biases = []
+    bias_stds = []
+    for m in models:
+        overall = get_task1_section(data[m], "overall")
+        biases.append(overall.get('bias', 0.0))
+        bias_stds.append(overall.get('bias_std', 0.0))
     colors = [get_color(m) for m in models]
     
     bars = ax.bar(models, biases, yerr=bias_stds, color=colors, 
@@ -192,13 +229,12 @@ def plot_bias_comparison(data: dict, output_dir: Path):
     # Right: Bias by α range (heatmap-style)
     ax = axes[1]
     
-    first_model = list(data.values())[0]
-    alpha_cats = list(first_model.get('by_alpha', {}).keys())
+    alpha_cats = get_alpha_categories(data)
     
     if alpha_cats:
         bias_matrix = []
         for model in models:
-            model_data = data[model].get('by_alpha', {})
+            model_data = get_task1_section(data[model], "by_alpha")
             row = [model_data.get(cat, {}).get('bias', 0) for cat in alpha_cats]
             bias_matrix.append(row)
         
@@ -240,9 +276,14 @@ def plot_percentile_comparison(data: dict, output_dir: Path):
     x = np.arange(len(models))
     width = 0.25
     
-    maes = [data[m]['overall']['mae'] for m in models]
-    p90s = [data[m]['overall']['p90_error'] for m in models]
-    p95s = [data[m]['overall']['p95_error'] for m in models]
+    maes = []
+    p90s = []
+    p95s = []
+    for m in models:
+        overall = get_task1_section(data[m], "overall")
+        maes.append(overall.get('mae', 0.0))
+        p90s.append(overall.get('p90_error', 0.0))
+        p95s.append(overall.get('p95_error', 0.0))
     
     bars1 = ax.bar(x - width, maes, width, label='MAE', color='#3498db')
     bars2 = ax.bar(x, p90s, width, label='P90', color='#e74c3c')
@@ -272,7 +313,7 @@ def plot_summary_table(data: dict, output_dir: Path):
     rows = []
     
     for model in models:
-        m = data[model]['overall']
+        m = get_task1_section(data[model], "overall")
         rows.append([
             model.upper(),
             f"{m['mae']:.4f}",
@@ -364,4 +405,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
