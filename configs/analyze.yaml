@@ -1,0 +1,55 @@
+# =============================================================================
+# Analysis Configuration
+# =============================================================================
+# Analyze trained models with extended AnDi-style metrics.
+#
+# Run: sbatch slurm/submit.slurm analyze configs/analyze.yaml
+#      python scripts/analyze_results.py --checkpoint outputs/cnn/best.pt
+# =============================================================================
+
+# Analysis parameters
+analysis:
+  max_samples: 5000        # Number of test trajectories to analyze
+  device: auto             # auto/cuda/cpu
+
+# Data source
+data:
+  repo_id: taj-gillin/andi-trajectory
+  split: test
+
+# Models to analyze (if running comparison)
+models:
+  linear:
+    checkpoint: outputs/linear/best.pt
+  mlp:
+    checkpoint: outputs/mlp/best.pt
+  lstm:
+    checkpoint: outputs/lstm/best.pt
+  cnn:
+    checkpoint: outputs/cnn/best.pt
+  hybrid:
+    checkpoint: outputs/hybrid/best.pt
+  hybrid_pinn:
+    checkpoint: outputs/hybrid_pinn/best.pt
+
+# Output settings
+output:
+  dir: outputs/analysis
+  save_plots: true
+  save_json: true
+
+# Breakdown analysis bins
+breakdown:
+  alpha_bins:
+    - [0.0, 0.5, "subdiffusion_strong"]
+    - [0.5, 0.8, "subdiffusion_weak"]
+    - [0.8, 1.2, "normal_like"]
+    - [1.2, 1.5, "superdiffusion_weak"]
+    - [1.5, 2.0, "superdiffusion_strong"]
+  
+  length_bins:
+    - [0, 100, "short"]
+    - [100, 300, "medium"]
+    - [300, 600, "long"]
+    - [600, 10000, "very_long"]
+

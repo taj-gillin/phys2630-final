@@ -1,21 +1,21 @@
 # =============================================================================
-# Model: CNN Encoder
+# Model: LSTM Encoder
 # =============================================================================
-# Multi-scale 1D convolutional encoder for local pattern extraction.
+# Bidirectional LSTM encoder for sequential pattern recognition.
 #
-# Run: sbatch slurm/submit.slurm train configs/models/cnn.yaml
+# Run: sbatch slurm/submit.slurm train configs/models/lstm.yaml
 # =============================================================================
 
 experiment:
-  name: cnn
-  description: Multi-scale CNN for local trajectory patterns
+  name: lstm
+  description: Bidirectional LSTM for sequential trajectory encoding
 
 wandb:
   enabled: true
   project: anomalous-diffusion
   entity: taj_gillin-Brown University
-  tags: [cnn, convolutional, multi-scale]
-  notes: 1D CNN encoder - extracts multi-scale local features
+  tags: [lstm, recurrent, sequential]
+  notes: Bidirectional LSTM encoder - captures temporal patterns
 
 data:
   repo_id: taj-gillin/andi-trajectory
@@ -28,11 +28,16 @@ data:
   seed: 42
 
 model:
-  encoder: cnn
-  loss: supervised
+  encoder: lstm
+  loss: combined
   params:
-    channels: 32
+    hidden_dim: 64
+    num_layers: 2
     dropout: 0.1
+    bidirectional: true
+  loss_params:
+    lambda_physics: 0.1
+  
 
 training:
   epochs: 200
@@ -44,9 +49,6 @@ training:
     min_lr_factor: 0.01
   num_workers: 4
   log_interval: 10
-  regularization:
-    l1: 0
-    l2: 0  
   early_stopping:
     enabled: false
     patience: 10

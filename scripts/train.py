@@ -123,11 +123,37 @@ def train(
         weight_decay=train_cfg.get("weight_decay", 1e-4),
     )
     
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=train_cfg["epochs"],
-        eta_min=train_cfg["lr"] * 0.01,
-    )
+    # Learning rate scheduler with optional warmup
+    scheduler_cfg = train_cfg.get("scheduler", {})
+    warmup_epochs = scheduler_cfg.get("warmup_epochs", 5)
+    min_lr_factor = scheduler_cfg.get("min_lr_factor", 0.01)
+    
+    if warmup_epochs > 0:
+        # Linear warmup from 10% to 100% of lr
+        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=0.1,
+            end_factor=1.0,
+            total_iters=warmup_epochs,
+        )
+        # Cosine decay after warmup
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=train_cfg["epochs"] - warmup_epochs,
+            eta_min=train_cfg["lr"] * min_lr_factor,
+        )
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[warmup_epochs],
+        )
+    else:
+        # No warmup, just cosine decay
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=train_cfg["epochs"],
+            eta_min=train_cfg["lr"] * min_lr_factor,
+        )
     
     # Track best model
     best_val_loss = float("inf")
@@ -151,6 +177,10 @@ def train(
     print(f"Loss: {loss_fn.__class__.__name__}")
     print(f"Epochs: {train_cfg['epochs']}")
     print(f"Learning rate: {train_cfg['lr']}")
+    if warmup_epochs > 0:
+        print(f"Scheduler: {warmup_epochs} epoch warmup → cosine decay (min_lr={train_cfg['lr'] * min_lr_factor:.6f})")
+    else:
+        print(f"Scheduler: cosine decay (min_lr={train_cfg['lr'] * min_lr_factor:.6f})")
     if l1_coeff or l2_coeff:
         reg_parts = []
         if l1_coeff:
@@ -342,10 +372,13 @@ def main():
     
     # Load data from HuggingFace
     data_cfg = config["data"]
+    train_split = data_cfg.get("train_split", data_cfg.get("split", "train"))
+    val_split = data_cfg.get("val_split", "validation")
     
     print("\nLoading training data from HuggingFace...")
     train_data = load_from_hf(
         repo_id=data_cfg["repo_id"],
+        split=train_split,
         alpha_range=tuple(data_cfg.get("alpha_range", [0.1, 2.0])),
         length_range=tuple(data_cfg.get("length_range", [50, 1000])),
         max_trajectories=data_cfg.get("n_train"),
@@ -357,11 +390,12 @@ def main():
     print("Loading validation data...")
     val_data = load_from_hf(
         repo_id=data_cfg["repo_id"],
+        split=val_split,
         alpha_range=tuple(data_cfg.get("alpha_range", [0.1, 2.0])),
         length_range=tuple(data_cfg.get("length_range", [50, 1000])),
         max_trajectories=data_cfg.get("n_val"),
-        shuffle=True,
-        seed=seed + 999999,
+        shuffle=False,
+        seed=seed,
     )
     print(f"  Loaded {len(val_data)} validation trajectories")
     

@@ -37,17 +37,20 @@ model:
     lambda_physics: 0.1
 
 training:
-  epochs: 50
+  epochs: 200
   batch_size: 128
   lr: 0.001
   weight_decay: 0.0001
+  scheduler:
+    warmup_epochs: 5
+    min_lr_factor: 0.01
   regularization:
     l1: 0.0
     l2: 0.0
   num_workers: 4
   log_interval: 10
   early_stopping:
-    enabled: true
+    enabled: false
     patience: 10
     min_delta: 0.0001
 

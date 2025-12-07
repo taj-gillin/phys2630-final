@@ -78,7 +78,7 @@ class PhysicsLoss(nn.Module):
         if trajectory is None:
             raise ValueError("PhysicsLoss requires trajectory input")
         
-        batch_size, seq_len, _ = trajectory.shape
+        batch_size, seq_len, n_dim = trajectory.shape
         device = trajectory.device
 
         if lengths is None:
@@ -90,34 +90,71 @@ class PhysicsLoss(nn.Module):
         max_len = lengths.max().item()
         max_lag_global = max(1, int(max_len * self.max_lag_fraction))
 
-        # Pre-compute log-lags tensor
+        # Pre-compute lag tensors
         lags = torch.arange(1, max_lag_global + 1, device=device, dtype=torch.float32)
+        lags_int = torch.arange(1, max_lag_global + 1, device=device, dtype=torch.long)
         log_lags = torch.log(lags)  # (max_lag_global,)
 
-        # Collect empirical MSDs and valid masks per lag
-        msd_empirical_list = []
-        lag_mask_list = []
+        # Maximum number of displacement positions (for lag=1)
+        max_positions = seq_len - 1
 
-        for lag in range(1, max_lag_global + 1):
-            # Displacements for this lag across the whole batch
-            disp = trajectory[:, lag:, :] - trajectory[:, :-lag, :]
+        # Create position indices: (max_positions,)
+        positions = torch.arange(max_positions, device=device, dtype=torch.long)
 
-            # Valid mask: positions before padding for each sample
-            valid = (torch.arange(seq_len - lag, device=device)
-                     < (lengths - lag).unsqueeze(1))
+        # End indices for each (lag, position): end_idx = position + lag
+        # Shape: (max_lag_global, max_positions)
+        end_indices = positions.unsqueeze(0) + lags_int.unsqueeze(1)
 
-            # Avoid division by zero
-            valid_counts = valid.sum(dim=1).clamp_min(1)
+        # Valid positions mask: end_idx must be < seq_len
+        # Shape: (max_lag_global, max_positions)
+        pos_valid_global = end_indices < seq_len
 
-            # Empirical MSD for this lag, per sample
-            msd = ((disp ** 2).sum(dim=-1) * valid).sum(dim=1) / valid_counts
-            msd_empirical_list.append(msd)
+        # Clamp end indices to valid range for safe indexing
+        end_indices_clamped = end_indices.clamp(max=seq_len - 1)
 
-            # Mask indicating which samples have valid entries for this lag
-            lag_mask_list.append((lengths > lag).float())
+        # Gather trajectory values at end and start positions
+        # Flatten end_indices for advanced indexing: (max_lag_global * max_positions,)
+        end_flat = end_indices_clamped.flatten()
 
-        msd_empirical = torch.stack(msd_empirical_list, dim=1)  # (batch, max_lag_global)
-        lag_mask = torch.stack(lag_mask_list, dim=1)            # (batch, max_lag_global)
+        # trajectory_end: (batch, max_lag_global * max_positions, n_dim)
+        trajectory_end = trajectory[:, end_flat, :]
+        # Reshape to (batch, max_lag_global, max_positions, n_dim)
+        trajectory_end = trajectory_end.view(batch_size, max_lag_global, max_positions, n_dim)
+
+        # trajectory_start: (batch, max_positions, n_dim) -> (batch, 1, max_positions, n_dim)
+        trajectory_start = trajectory[:, positions, :].unsqueeze(1)
+
+        # Compute displacements for all lags at once
+        # Shape: (batch, max_lag_global, max_positions, n_dim)
+        disp = trajectory_end - trajectory_start
+
+        # Per-sample validity: position i with lag τ is valid if i + τ < length
+        # i.e., position < length - lag
+        # Shape: (batch, max_lag_global, max_positions)
+        sample_valid = positions.view(1, 1, -1) < (lengths.view(-1, 1, 1) - lags_int.view(1, -1, 1))
+
+        # Combined validity mask
+        # Shape: (batch, max_lag_global, max_positions)
+        combined_valid = pos_valid_global.unsqueeze(0) & sample_valid
+
+        # Squared displacements summed over spatial dimensions
+        # Shape: (batch, max_lag_global, max_positions)
+        sq_disp = (disp ** 2).sum(dim=-1)
+
+        # Apply validity mask
+        sq_disp_masked = sq_disp * combined_valid.float()
+
+        # Count valid displacements per (batch, lag)
+        # Shape: (batch, max_lag_global)
+        valid_counts = combined_valid.float().sum(dim=-1).clamp_min(1)
+
+        # Empirical MSD per sample per lag
+        # Shape: (batch, max_lag_global)
+        msd_empirical = sq_disp_masked.sum(dim=-1) / valid_counts
+
+        # Lag mask: which lags are valid for each sample (length > lag)
+        # Shape: (batch, max_lag_global)
+        lag_mask = (lengths.unsqueeze(-1) > lags_int.unsqueeze(0)).float()
 
         # Compute log-MSD
         log_msd_emp = torch.log(msd_empirical + 1e-8)  # (batch, max_lag_global)

@@ -84,6 +84,7 @@ def main():
     hf_cfg = config["huggingface"]
     gen_cfg = config["generation"]
     proc_cfg = config.get("processing", {})
+    splits_cfg = gen_cfg.get("splits", {})
     
     repo_id = hf_cfg["repo_id"]
     n_trajectories = gen_cfg["n_trajectories"]
@@ -163,14 +164,67 @@ def main():
         logger.finish()
         sys.exit(1)
     
+    # Create split ratios
+    val_fraction = float(splits_cfg.get("val", splits_cfg.get("validation", 0.0)))
+    test_fraction = float(splits_cfg.get("test", 0.0))
+    train_fraction = splits_cfg.get("train")
+    if train_fraction is None:
+        train_fraction = 1.0 - val_fraction - test_fraction
+    train_fraction = float(train_fraction)
+    
+    total_fraction = train_fraction + val_fraction + test_fraction
+    if total_fraction > 1.0 + 1e-6:
+        logger.finish()
+        raise ValueError(
+            f"Split fractions sum to {total_fraction:.3f} (>1). "
+            "Please adjust generation.splits."
+        )
+    if train_fraction <= 0:
+        logger.finish()
+        raise ValueError("Train split must be positive.")
+    
+    # Shuffle once with a deterministic seed, then slice
+    dataset = Dataset.from_list(records).shuffle(seed=seed)
+    n_total = len(dataset)
+    n_train = int(n_total * train_fraction)
+    n_val = int(n_total * val_fraction)
+    n_test = n_total - n_train - n_val
+    
+    if n_train <= 0 or n_val < 0 or n_test < 0:
+        logger.finish()
+        raise ValueError(
+            f"Invalid split sizes: train={n_train}, val={n_val}, test={n_test} (total={n_total})"
+        )
+    
+    train_ds = dataset.select(range(0, n_train))
+    val_ds = dataset.select(range(n_train, n_train + n_val)) if n_val > 0 else None
+    test_ds = dataset.select(range(n_train + n_val, n_total)) if n_test > 0 else None
+    
+    print("\nUpload splits")
+    print(f"  Train: {len(train_ds):,}")
+    if val_ds is not None:
+        print(f"  Val:   {len(val_ds):,}")
+    if test_ds is not None:
+        print(f"  Test:  {len(test_ds):,}")
+    
+    split_dict = {"train": train_ds}
+    if val_ds is not None:
+        split_dict["validation"] = val_ds
+    if test_ds is not None:
+        split_dict["test"] = test_ds
+    
+    dataset = DatasetDict(split_dict)
+    
     # Create and upload dataset
     print(f"\nUploading to {repo_id}...")
-    dataset = DatasetDict({"train": Dataset.from_list(records)})
-    
     dataset.push_to_hub(
         repo_id,
         token=token,
-        commit_message=f"Upload FBM dataset ({n_trajectories:,} trajectories, AnDi convention)",
+        commit_message=(
+            f"Upload FBM dataset with splits "
+            f"train={len(train_ds):,}, val={len(val_ds) if val_ds else 0:,}, "
+            f"test={len(test_ds) if test_ds else 0:,}"
+        ),
     )
     
     logger.set_summary("upload_success", True)

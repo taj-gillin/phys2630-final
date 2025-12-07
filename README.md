@@ -72,6 +72,28 @@ After training, compare all methods:
 sbatch slurm/submit.slurm compare configs/compare.yaml
 ```
 
+### 4. Analyze Results (AnDi-Style Metrics)
+
+Generate detailed analysis with extended metrics matching the AnDi Challenge paper:
+
+```bash
+# Analyze a single model
+sbatch slurm/submit.slurm analyze outputs/cnn/best.pt
+
+# Analyze and compare all trained models
+sbatch slurm/submit.slurm analyze-all
+
+# Local (without SLURM)
+python scripts/analyze_results.py --checkpoint outputs/cnn/best.pt
+python scripts/analyze_results.py --compare outputs/
+```
+
+This produces:
+- **Extended metrics**: MAE, RMSE, bias, R², P90/P95 errors
+- **Breakdown by α**: Performance across diffusion regimes
+- **Breakdown by length**: Performance vs trajectory length
+- **Visualizations**: Scatter plots, bias histograms, error curves
+
 ### 4. Quick Smoke Test
 
 Verify everything works:
@@ -167,6 +189,30 @@ Each experiment saves to `outputs/<experiment_name>/`:
 - `final.pt` - Final model checkpoint  
 - `config.yaml` - Experiment config
 - `summary.json` - Training history
+- `analysis/` - Extended analysis (if run)
+  - `analysis_results.json` - Full metrics
+  - `scatter_pred_vs_true.png` - Prediction scatter plot
+  - `bias_histogram.png` - Bias distribution
+  - `error_vs_alpha.png` - Error by α value
+  - `error_vs_length.png` - Error by trajectory length
+
+## Metrics (AnDi Challenge Comparison)
+
+The analysis script computes metrics matching the [AnDi Challenge paper](https://www.nature.com/articles/s41467-021-26320-w):
+
+| Metric | Description | AnDi Paper Reference |
+|--------|-------------|---------------------|
+| **MAE** | Mean Absolute Error | Primary metric (Eq. 9) |
+| **RMSE** | Root Mean Squared Error | Used for changepoint (Eq. 11) |
+| **Bias** | Mean(α_pred - α_true) | Should be ~0 for unbiased estimator |
+| **R²** | Coefficient of determination | Correlation measure |
+| **P90/P95** | 90th/95th percentile error | Worst-case analysis |
+
+### Breakdown Analysis
+
+Following the paper's methodology:
+- **By α value**: subdiffusion (α<1) vs superdiffusion (α>1)
+- **By trajectory length**: short (<100) to long (>600 points)
 
 ## SLURM Usage
 

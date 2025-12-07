@@ -16,11 +16,17 @@
 #   sbatch slurm/submit.slurm train configs/models/lstm.yaml
 #   sbatch slurm/submit.slurm compare configs/compare.yaml
 #   sbatch slurm/submit.slurm generate configs/data/generate.yaml
+#   sbatch slurm/submit.slurm analyze outputs/cnn/best.pt
+#   sbatch slurm/submit.slurm analyze-all
+#   sbatch slurm/submit.slurm visualize
 #
 # Job Types:
-#   train     - Train a model (requires model config)
-#   compare   - Run method comparison
-#   generate  - Generate and upload dataset to HF
+#   train       - Train a model (requires model config)
+#   compare     - Run method comparison
+#   generate    - Generate and upload dataset to HF
+#   analyze     - Analyze single model (requires checkpoint path)
+#   analyze-all - Analyze and compare all models in outputs/
+#   visualize   - Generate comparison visualizations
 #
 # =============================================================================
 
@@ -46,15 +52,39 @@ case "${JOB_TYPE}" in
         SCRIPT="scripts/generate_data.py"
         CONFIG_PATH="${CONFIG_PATH:-configs/data/generate.yaml}"
         ;;
+    analyze)
+        SCRIPT="scripts/analyze_results.py"
+        # For analyze, the second arg is checkpoint path, not config
+        CHECKPOINT_PATH="${CONFIG_PATH}"
+        CONFIG_PATH=""
+        ;;
+    analyze-all)
+        SCRIPT="scripts/analyze_results.py"
+        # Compare all models in outputs directory
+        COMPARE_DIR="outputs/"
+        CONFIG_PATH=""
+        ;;
+    visualize)
+        SCRIPT="scripts/visualize_comparison.py"
+        CONFIG_PATH=""
+        ;;
     *)
         echo "Error: Unknown job type '${JOB_TYPE}'"
-        echo "Valid types: train, compare, generate"
+        echo "Valid types: train, compare, generate, analyze, analyze-all, visualize"
         exit 1
         ;;
 esac
 
-# Validate config exists
-if [ -n "${CONFIG_PATH}" ] && [ ! -f "${CONFIG_PATH}" ]; then
+# Validate inputs based on job type
+if [ "${JOB_TYPE}" = "analyze" ]; then
+    if [ -z "${CHECKPOINT_PATH}" ] || [ ! -f "${CHECKPOINT_PATH}" ]; then
+        echo "Error: Checkpoint not found: ${CHECKPOINT_PATH}"
+        echo "Usage: sbatch slurm/submit.slurm analyze outputs/MODEL/best.pt"
+        echo "Available checkpoints:"
+        ls outputs/*/best.pt 2>/dev/null || echo "  (none)"
+        exit 1
+    fi
+elif [ -n "${CONFIG_PATH}" ] && [ ! -f "${CONFIG_PATH}" ]; then
     echo "Error: Config not found: ${CONFIG_PATH}"
     echo "Working directory: $(pwd)"
     echo "Available configs:"
@@ -99,11 +129,23 @@ echo ""
 
 # Run
 echo "=============================================================================="
-echo "python ${SCRIPT} --config ${CONFIG_PATH}"
+
+# Build command based on job type
+if [ "${JOB_TYPE}" = "analyze" ]; then
+    CMD="python ${SCRIPT} --checkpoint ${CHECKPOINT_PATH}"
+elif [ "${JOB_TYPE}" = "analyze-all" ]; then
+    CMD="python ${SCRIPT} --compare ${COMPARE_DIR}"
+elif [ "${JOB_TYPE}" = "visualize" ]; then
+    CMD="python ${SCRIPT}"
+else
+    CMD="python ${SCRIPT} --config ${CONFIG_PATH}"
+fi
+
+echo "${CMD}"
 echo "=============================================================================="
 echo ""
 
-python "${SCRIPT}" --config "${CONFIG_PATH}"
+${CMD}
 
 echo ""
 echo "=============================================================================="
